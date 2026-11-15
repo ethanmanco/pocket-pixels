@@ -1,0 +1,13 @@
+{
+  // Local testing only: the same server, plus a build of the game served from
+  // the same address (npm run server:local), so phones on your Wi-Fi need one URL.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "pocket-pixels-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "TABLES", "class_name": "Table" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Table"] }],
+  "assets": { "directory": "../dist-local" }
+}

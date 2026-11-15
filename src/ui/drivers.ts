@@ -1,9 +1,8 @@
-// Who makes the decisions for a seat. The table asks each seat's driver for an
-// action and only ever hands it that seat's own view, so the same loop works
-// for a person on this phone, a bot, and (later) a player on another device.
+// Who makes the decisions for a bot seat in solo play. A bot only ever gets
+// its own seat's view. (Online, the server runs the bots; see src/online/room.ts.)
 
 import { type BotStyle, decide } from "../engine/bot";
-import type { Action, LegalActions, PlayerView } from "../engine/game";
+import type { Action, PlayerView } from "../engine/game";
 import { Rng } from "../engine/rng";
 import { sleep } from "./timing";
 
@@ -30,36 +29,5 @@ export class BotDriver implements SeatDriver {
     const wait = this.thinkMs() - (performance.now() - started);
     if (wait > 0) await sleep(wait);
     return action;
-  }
-}
-
-/** The person holding this phone. The buttons resolve the pending decision. */
-export class LocalDriver implements SeatDriver {
-  readonly kind = "local";
-  private pending: { legal: LegalActions; resolve: (a: Action) => void } | null = null;
-
-  constructor(private onWaiting: () => void) {}
-
-  decide(view: PlayerView): Promise<Action> {
-    return new Promise((resolve) => {
-      this.pending = { legal: view.legal!, resolve };
-      this.onWaiting();
-    });
-  }
-
-  /** Legal actions while waiting for the player, otherwise null. */
-  get waitingFor(): LegalActions | null {
-    return this.pending?.legal ?? null;
-  }
-
-  submit(action: Action): void {
-    const p = this.pending;
-    if (!p) return;
-    this.pending = null;
-    p.resolve(action);
-  }
-
-  cancel(): void {
-    this.pending = null;
   }
 }

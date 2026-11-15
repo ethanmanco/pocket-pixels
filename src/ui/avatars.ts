@@ -119,8 +119,25 @@ export const AVATARS: Record<string, AvatarArt> = {
   },
 };
 
+// People at online tables: the player sprite with a different cap and shirt per seat.
+const PLAYER_COLORS: [cap: string, shirt: string, bg: string][] = [
+  ["#ffd166", "#3a86ff", "#26425e"],
+  ["#ff6b9d", "#2ec4b6", "#3d2b56"],
+  ["#7ae582", "#ef476f", "#22404a"],
+  ["#4cc9f0", "#f77f00", "#3b2f2f"],
+  ["#c77dff", "#90be6d", "#2b3a55"],
+];
+PLAYER_COLORS.forEach(([cap, shirt, bg], i) => {
+  const you = AVATARS.you!;
+  AVATARS[`p${i}`] = { rows: you.rows, bg, palette: { ...you.palette, c: cap, b: shirt } };
+});
+
+/** An empty seat at an online table. */
+AVATARS.open = { rows: [], palette: {}, bg: "transparent" };
+
 export function avatarSVG(key: string, scale = 3): string {
   const art = AVATARS[key] ?? AVATARS.you!;
+  if (!art.rows.length) return "";
   return pixelSVG(art.rows, art.palette, scale, "avatar-art");
 }
 

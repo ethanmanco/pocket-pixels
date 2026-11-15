@@ -23,6 +23,8 @@ export interface Saved {
   stats: Stats;
   muted: boolean;
   players: number;
+  /** Your name at online tables. */
+  name: string;
 }
 
 const KEY = "pocket-pixels:v1";
@@ -32,7 +34,7 @@ export function emptyStats(): Stats {
 }
 
 export function defaults(): Saved {
-  return { chips: START_STACK, stats: emptyStats(), muted: false, players: 5 };
+  return { chips: START_STACK, stats: emptyStats(), muted: false, players: 5, name: "" };
 }
 
 const count = (v: unknown, fallback: number) =>
@@ -50,6 +52,7 @@ export function load(storage: Pick<Storage, "getItem"> | null = safeStorage()): 
     return {
       chips: count(v.chips, d.chips),
       muted: v.muted === true,
+      name: typeof v.name === "string" ? v.name.replace(/[^A-Za-z0-9 ]/g, "").slice(0, 12) : "",
       players: [2, 3, 4, 5].includes(v.players as number) ? (v.players as number) : d.players,
       stats: {
         handsPlayed: count(s.handsPlayed, 0),

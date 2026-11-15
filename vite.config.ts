@@ -3,10 +3,12 @@ import { defineConfig } from "vitest/config";
 
 // GitHub Pages serves the site from /pocket-pixels/ (and so does `vite preview`
 // of the build); the dev server serves from /.
-export default defineConfig(({ command, isPreview }) => ({
+export default defineConfig(({ command, isPreview, mode }) => ({
   base: command === "build" || isPreview ? "/pocket-pixels/" : "/",
   plugins: [
     VitePWA({
+      // The local multiplayer test build skips the offline cache so rebuilds show up.
+      disable: mode === "localtest",
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "icons/apple-touch-icon.png"],
       manifest: {

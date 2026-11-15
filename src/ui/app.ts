@@ -1,36 +1,32 @@
-// The table screen. It runs the hand loop (asking each seat's driver for an
-// action), animates cards and chips, plays sounds, keeps your chips and stats,
-// and draws everything as plain DOM.
+// The table screen. It draws whatever its source sends (solo play on this
+// phone, or a table on the server), animates cards and chips, plays sounds,
+// keeps your stats, and passes your moves back to the source.
 //
 // Layout, top to bottom: opponents along the top arc (with their bets below
-// them), the board and pot in the middle, your bet, then you.
+// them), the board and pot in the middle, your bet, then you. You are always
+// seat 0 on screen.
 
-import { type BotPersonality, STYLES } from "../engine/bot";
 import { type Card, cardCode, parseCard, rankName, sameCard } from "../engine/cards";
 import { evaluateHand } from "../engine/evaluate";
-import {
-  type GameEvent, type GameState, type LegalActions, type Seat,
-  applyAction, createGame, isBetweenHands, rebuy, startHand, viewFor,
-} from "../engine/game";
-import { Rng, randomSeed } from "../engine/rng";
+import type { Action, GameEvent, HandResult, LegalActions } from "../engine/game";
+import { type SeatView, type TableView, viewBetweenHands } from "../engine/view";
+import { type RoomView, isValidCode, randomCode } from "../online/protocol";
 import { avatarBg, avatarSVG } from "./avatars";
 import { cardBackEl, cardEl, cardList, emptySlotEl } from "./cards";
 import { chipsSVG, pileColumns, stackColumn } from "./chips";
-import { BotDriver, LocalDriver, type SeatDriver } from "./drivers";
 import { flipIn, slide } from "./motion";
 import { pixelSVG } from "./pixels";
 import { isMuted, setMuted, sfx, unlockAudio } from "./sfx";
+import { LocalSource, OnlineSource, type Opponent, type TableSource, type Update } from "./source";
 import { type Saved, START_STACK, defaults, emptyStats, load, save } from "./storage";
 import { paintTable } from "./table";
 import { devSeed, reducedMotion, sleep } from "./timing";
 
+export type { Opponent } from "./source";
+
 const HUMAN = 0;
 
-export interface Opponent {
-  name: string;
-  personality: BotPersonality;
-  avatar: string;
-}
+export type Mode = { kind: "local"; roster: Opponent[] } | { kind: "online"; code: string };
 
 /**
  * Where an opponent sits in the top area: x in percent of the width, y in
@@ -49,14 +45,6 @@ const OPPONENT_SLOTS: Record<number, Slot[]> = {
   ],
 };
 
-/** Which opponents sit at smaller tables (seating order is kept). */
-const TABLE_PICKS: Record<number, string[]> = {
-  2: ["Blaze"],
-  3: ["Pebble", "Blaze"],
-  4: ["Pebble", "Juniper", "Blaze"],
-  5: ["Pebble", "Juniper", "Blaze", "Rook"],
-};
-
 const CHIP_SCALE = 3;
 
 const ICONS = {
@@ -68,21 +56,25 @@ const icon = (rows: string[]) => pixelSVG(rows, { X: "currentColor" }, 3, "icon"
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const round5 = (n: number) => Math.round(n / 5) * 5;
+/** Names from the server are already letters, digits and spaces; escape anyway. */
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const homeUrl = () => `${location.origin}${location.pathname}`;
+
+function emptyView(): TableView {
+  return { me: 0, seats: [], hand: null, smallBlind: 5, bigBlind: 10, legal: null };
+}
 
 export class TableApp {
-  private state!: GameState;
-  private rng = new Rng(devSeed() ?? randomSeed());
-  private drivers: SeatDriver[] = [];
-  private local: LocalDriver;
+  private source: TableSource | null = null;
+  private view: TableView = emptyView();
+  private room: RoomView | null = null;
   private avatars: string[] = [];
-  private slots: Slot[] = [];
   private saved: Saved;
-  private pendingSize: number | null = null;
+  private queue: { u: Update; done: () => void }[] = [];
+  private draining = false;
+  private animating = false;
+  private joined = false;
 
-  /** A hand is being played or animated. */
-  private running = false;
-  /** Seat whose bot is thinking, for the dots. */
-  private thinking: number | null = null;
   /** Board cards shown so far (all-in runouts reveal one street at a time). */
   private shownBoard = 0;
   /** Chips shown in front of each player this street (lags the engine while chips animate). */
@@ -92,6 +84,11 @@ export class TableApp {
   private pendingWin: number[] | null = null;
   private message = "";
   private raiseTo = 0;
+  private turnKey = "";
+  private turnDeadline: number | null = null;
+  private sentAction = false;
+  /** Hold showdown cards face down until the hand-end moment in the animation. */
+  private holdReveal = false;
 
   private el: {
     felt: HTMLElement; upper: HTMLElement; board: HTMLElement; pot: HTMLElement; myBet: HTMLElement;
@@ -99,16 +96,10 @@ export class TableApp {
     mute: HTMLButtonElement; menuBtn: HTMLButtonElement; menu: HTMLDialogElement;
   };
 
-  constructor(root: HTMLElement, private roster: Opponent[]) {
+  constructor(root: HTMLElement, private mode: Mode) {
     // A demo seed starts from a clean slate so the hand plays out the same way.
     this.saved = devSeed() === null ? load() : defaults();
     setMuted(this.saved.muted);
-
-    this.local = new LocalDriver(() => {
-      this.raiseTo = this.local.waitingFor?.minRaiseTo ?? 0;
-      sfx.turn();
-      this.render();
-    });
 
     root.innerHTML = `
       <header class="topbar">
@@ -141,7 +132,7 @@ export class TableApp {
     let lastHeight = 0;
     new ResizeObserver(() => {
       const h = this.el.upper.clientHeight;
-      if (h !== lastHeight && this.state) {
+      if (h !== lastHeight) {
         lastHeight = h;
         this.render();
       }
@@ -152,103 +143,141 @@ export class TableApp {
     this.el.mute.onclick = () => this.toggleMute();
     this.el.menuBtn.onclick = () => this.openMenu();
     this.renderMute();
-
-    this.setupTable(this.saved.players, this.saved.chips);
+    // The turn timer counts down on screen.
+    setInterval(() => {
+      if (this.turnDeadline !== null && !document.hidden) this.renderTimer();
+    }, 500);
     this.render();
   }
 
   start(): void {
-    if (this.state.seats[HUMAN]!.stack > 0) void this.playHand();
+    if (this.mode.kind === "local") {
+      this.source = new LocalSource(this.mode.roster, this.saved, () => this.persist());
+      this.source.start((u) => this.enqueue(u));
+    } else if (!this.saved.name) {
+      this.askName();
+    } else {
+      this.connect();
+    }
   }
 
-  /** Seat a fresh table of `players` (you plus bots), keeping your chips. */
-  private setupTable(players: number, myChips: number): void {
-    const names = TABLE_PICKS[players] ?? TABLE_PICKS[5]!;
-    const opponents = this.roster.filter((o) => names.includes(o.name));
-    this.state = createGame({
-      players: [{ name: "You", personality: "human" }, ...opponents],
-      stack: START_STACK,
-      seed: devSeed() ?? randomSeed(),
+  private get local(): LocalSource | null {
+    return this.source instanceof LocalSource ? this.source : null;
+  }
+
+  private get online(): OnlineSource | null {
+    return this.source instanceof OnlineSource ? this.source : null;
+  }
+
+  private connect(): void {
+    if (this.mode.kind !== "online") return;
+    const src = new OnlineSource(this.mode.code, this.saved.name, {
+      status: (text) => {
+        this.say(text);
+        this.render();
+      },
+      left: () => {
+        location.href = homeUrl();
+      },
     });
-    this.state.seats[HUMAN]!.stack = myChips;
-    const n = this.state.seats.length;
-    this.avatars = ["you", ...opponents.map((o) => o.avatar)];
-    this.slots = OPPONENT_SLOTS[opponents.length] ?? OPPONENT_SLOTS[4]!;
-    this.bets = new Array<number>(n).fill(0);
-    this.drawnBets = [...this.bets];
-    this.drivers = [
-      this.local,
-      ...opponents.map((o) => new BotDriver(STYLES[o.personality], this.rng, () => 450 + this.rng.int(450))),
-    ];
+    this.source = src;
+    src.start((u) => this.enqueue(u));
   }
 
   // ---------------------------------------------------------------- saving
 
   private persist(): void {
-    this.saved.chips = this.state.seats[HUMAN]!.stack;
     this.saved.muted = isMuted();
     save(this.saved);
   }
 
-  private recordHand(): void {
-    const h = this.state.hand!;
-    const r = h.result!;
-    const me = this.state.seats[HUMAN]!;
-    if (!me.hole.length) return;
+  private recordHand(result: HandResult): void {
+    const me = this.view.seats[HUMAN];
+    const h = this.view.hand;
+    if (!me || !me.cardCount || !h) return;
     const st = this.saved.stats;
     st.handsPlayed++;
-    const won = r.won[HUMAN] ?? 0;
+    const won = result.won[HUMAN] ?? 0;
     if (won > 0) {
       st.handsWon++;
       st.biggestPot = Math.max(st.biggestPot, won);
     }
-    if (me.status !== "folded" && h.board.length === 5) {
+    if (me.status !== "folded" && me.hole.length === 2 && h.board.length === 5) {
       const hand = evaluateHand([...me.hole, ...h.board]);
       if (!st.bestHand || hand.score > st.bestHand.score) {
         st.bestHand = { score: hand.score, name: hand.name, cards: hand.cards.map(cardCode) };
       }
     }
+    this.persist();
   }
 
-  // ---------------------------------------------------------------- hand loop
+  // ---------------------------------------------------------------- updates
 
-  private async playHand(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
-    if (this.pendingSize !== null) {
-      this.setupTable(this.pendingSize, this.state.seats[HUMAN]!.stack);
-      this.pendingSize = null;
+  /** Updates are shown one at a time, in order; solo play waits for each. */
+  private enqueue(u: Update): Promise<void> {
+    return new Promise((done) => {
+      this.queue.push({ u, done });
+      void this.drain();
+    });
+  }
+
+  private async drain(): Promise<void> {
+    if (this.draining) return;
+    this.draining = true;
+    while (this.queue.length) {
+      const { u, done } = this.queue.shift()!;
+      // Catching up (the phone was asleep): skip the animations.
+      const fast = this.queue.length > 2 || document.hidden;
+      await this.apply(u, fast);
+      done();
     }
-    for (const p of this.state.seats) {
-      if (p.id !== HUMAN && p.stack === 0) {
-        this.state = rebuy(this.state, p.id, START_STACK);
-        this.say(`${p.name} rebuys for ${fmt(START_STACK)}.`);
+    this.draining = false;
+  }
+
+  private async apply(u: Update, fast: boolean): Promise<void> {
+    const before = this.view.seats.length;
+    this.view = u.view;
+    this.avatars = u.avatars;
+    this.room = u.room;
+    this.joined = true;
+    this.sentAction = false;
+    const n = u.view.seats.length;
+    if (n !== before) {
+      this.bets = new Array<number>(n).fill(0);
+      this.drawnBets = [...this.bets];
+    }
+    this.turnDeadline = u.room?.turnMsLeft != null ? Date.now() + u.room.turnMsLeft : null;
+
+    if (fast) {
+      for (const e of u.events) if (e.type === "handEnd") this.recordHand(e.result);
+      this.pendingWin = null;
+    } else {
+      this.animating = true;
+      this.holdReveal = u.events.some((e) => e.type === "handEnd");
+      await this.show(u.events);
+      this.holdReveal = false;
+      this.animating = false;
+    }
+    // Settle the display on the final state of this update.
+    this.bets = this.view.seats.map((s) => s.streetBet);
+    this.drawnBets = [...this.bets];
+    this.shownBoard = this.view.hand?.board.length ?? 0;
+
+    const legal = this.view.legal;
+    if (legal) {
+      const h = this.view.hand!;
+      const key = `${h.number}:${h.street}:${h.currentBet}`;
+      if (key !== this.turnKey) {
+        this.turnKey = key;
+        this.raiseTo = legal.minRaiseTo;
+        sfx.turn();
       }
     }
-    const r = startHand(this.state);
-    this.state = r.state;
-    this.shownBoard = 0;
-    await this.show(r.events);
-
-    while (this.state.hand!.street !== "complete") {
-      const seat = this.state.hand!.toAct!;
-      const driver = this.drivers[seat]!;
-      this.thinking = driver.kind === "bot" ? seat : null;
-      this.render();
-      const action = await driver.decide(viewFor(this.state, seat));
-      this.thinking = null;
-      const step = applyAction(this.state, seat, action);
-      this.state = step.state;
-      this.persist();
-      await this.show(step.events);
-    }
-    this.running = false;
     this.render();
   }
 
   private async show(events: GameEvent[]): Promise<void> {
-    const h = this.state.hand!;
-    const name = (seat: number) => this.state.seats[seat]!.name;
+    const name = (seat: number) => (seat === HUMAN ? "You" : this.view.seats[seat]?.name ?? "");
     let streets = 0;
     let blindSound = false;
     for (const e of events) {
@@ -256,6 +285,8 @@ export class TableApp {
         case "handStart":
           this.bets.fill(0);
           this.drawnBets.fill(0);
+          this.shownBoard = 0;
+          this.pendingWin = null;
           this.say(`Hand ${e.handNo}. ${e.dealer === HUMAN ? "You have" : `${name(e.dealer)} has`} the button.`);
           break;
         case "blind":
@@ -264,9 +295,8 @@ export class TableApp {
           blindSound = true;
           break;
         case "deal": {
-          const me = this.state.seats[HUMAN]!;
-          this.persist();
-          if (me.hole.length) this.say(`Your cards: ${cardList(me.hole)}.`);
+          const me = this.view.seats[HUMAN];
+          if (me?.hole.length) this.say(`Your cards: ${cardList(me.hole)}.`);
           this.render();
           await this.dealAnimation(e.seats);
           break;
@@ -281,7 +311,7 @@ export class TableApp {
           this.render();
           break;
         case "returned":
-          this.bets[e.seat] = Math.max(0, this.bets[e.seat]! - e.amount);
+          this.bets[e.seat] = Math.max(0, (this.bets[e.seat] ?? 0) - e.amount);
           this.say(`${fmt(e.amount)} uncalled ${e.seat === HUMAN ? "comes back to you" : `goes back to ${name(e.seat)}`}.`);
           this.render();
           break;
@@ -300,10 +330,10 @@ export class TableApp {
           await sleep(250);
           this.pendingWin = [...e.result.won];
           await this.gatherBets();
-          this.shownBoard = h.board.length;
-          this.recordHand();
-          this.persist();
-          this.say(resultText(this.state));
+          this.shownBoard = this.view.hand?.board.length ?? 0;
+          this.recordHand(e.result);
+          this.holdReveal = false;
+          this.say(resultText(this.view, e.result));
           this.render();
           if (e.result.showdown) await this.flipShowdown();
           await sleep(e.result.showdown ? 1000 : 450);
@@ -325,6 +355,13 @@ export class TableApp {
     this.el.log.textContent = text;
   }
 
+  private act(action: Action): void {
+    if (!this.view.legal || this.animating || this.sentAction) return;
+    this.sentAction = true;
+    this.source?.act(action);
+    this.renderControls();
+  }
+
   // ---------------------------------------------------------------- card animation
 
   /** Deal hole cards from the middle of the table, one at a time around the table. */
@@ -338,7 +375,7 @@ export class TableApp {
       }
     }
     const step = 70;
-    order.forEach((_, i) => sfx.deal(i * step / 1000));
+    order.forEach((_, i) => sfx.deal((i * step) / 1000));
     await Promise.all(order.map((card, i) => slide(card, this.el.board, card, { duration: 220, delay: i * step, fade: "in" })));
   }
 
@@ -402,7 +439,7 @@ export class TableApp {
     this.el.pot.style.visibility = "";
   }
 
-  // ---------------------------------------------------------------- sound + menu
+  // ---------------------------------------------------------------- sound, name, menu
 
   private toggleMute(): void {
     setMuted(!isMuted());
@@ -423,33 +460,120 @@ export class TableApp {
     this.el.mute.title = off ? "Sound is off" : "Sound is on";
   }
 
+  /** Online: ask for a name before sitting down. */
+  private askName(): void {
+    const m = this.el.menu;
+    m.innerHTML = `
+      <form method="dialog" class="name-form">
+        <h2 id="menu-title" class="menu-title">Join table ${this.mode.kind === "online" ? this.mode.code : ""}</h2>
+        <label class="menu-section" for="name-input"><h3>Your name</h3></label>
+        <input id="name-input" class="text-input" maxlength="12" autocomplete="nickname" value="${esc(this.saved.name)}" placeholder="Player">
+        <p class="menu-note">Letters and numbers, up to 12. Other players see it.</p>
+        <div class="menu-actions">
+          <button type="button" class="btn btn--small" data-m="solo">Play solo</button>
+          <button class="btn btn--small btn--go" data-m="sit">Sit down</button>
+        </div>
+      </form>`;
+    const input = m.querySelector<HTMLInputElement>("input")!;
+    m.querySelector<HTMLButtonElement>('[data-m="solo"]')!.onclick = () => (location.href = homeUrl());
+    m.querySelector("form")!.onsubmit = (e) => {
+      e.preventDefault();
+      this.saved.name = input.value.replace(/[^A-Za-z0-9 ]/g, "").trim().slice(0, 12) || "Player";
+      this.persist();
+      m.close();
+      this.connect();
+    };
+    m.showModal();
+    input.focus();
+  }
+
   private openMenu(): void {
     this.renderMenu();
-    this.el.menu.showModal();
+    if (!this.el.menu.open) this.el.menu.showModal();
+  }
+
+  private inviteLink(): string {
+    return this.mode.kind === "online" ? `${homeUrl()}?table=${this.mode.code}` : homeUrl();
+  }
+
+  private async invite(): Promise<void> {
+    const url = this.inviteLink();
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Pocket Pixels", text: "Join my poker table (play chips only).", url });
+        return;
+      }
+    } catch {
+      // Share sheet closed; fall back to copying.
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      this.say("Invite link copied. Send it to a friend.");
+    } catch {
+      this.say(`Invite link: ${url}`);
+    }
+    this.render();
   }
 
   private renderMenu(confirmReset = false): void {
     const st = this.saved.stats;
-    const seatsNow = this.pendingSize ?? this.state.seats.length;
     const best = st.bestHand;
     const m = this.el.menu;
+    const local = this.local;
+    const online = this.online;
+    const me = this.view.seats[HUMAN];
+    const host = !!this.room?.seats[HUMAN]?.host;
+
+    const friends = online
+      ? `
+      <section class="menu-section">
+        <h3>Table ${online.code}</h3>
+        <div class="menu-actions menu-actions--flat">
+          <button class="btn btn--small" data-m="invite">Invite friends</button>
+          <button class="btn btn--small btn--fold" data-m="leave">Leave table</button>
+        </div>
+        ${host ? `
+        <ul class="seat-list">
+          ${(this.room?.seats ?? []).map((s, i) => i === HUMAN ? "" : `<li>
+            <span>${s.kind === "open" ? "Open seat" : esc(s.name)}${s.kind === "bot" ? " (bot)" : ""}${s.kind === "human" && (s.away || !s.connected) ? " (away)" : ""}</span>
+            ${s.kind === "bot" ? `<button class="btn btn--small btn--mini" data-m="remove" data-seat="${i}">Remove</button>` : ""}
+          </li>`).join("")}
+        </ul>
+        <button class="btn btn--small" data-m="addbot">Add a bot</button>
+        <p class="menu-note">You are the host: you can add or remove bots.</p>` : ""}
+      </section>`
+      : `
+      <section class="menu-section">
+        <h3>Play with friends</h3>
+        <div class="menu-actions menu-actions--flat">
+          <button class="btn btn--small btn--go" data-m="create">New table</button>
+        </div>
+        <form class="join-form" data-m="join">
+          <input class="text-input" name="code" maxlength="5" autocapitalize="characters" autocomplete="off" placeholder="CODE" aria-label="Table code">
+          <button class="btn btn--small">Join</button>
+        </form>
+        <p class="menu-note">Make a table and send the link, or type a friend's code.</p>
+      </section>`;
+
     m.innerHTML = `
       <h2 id="menu-title" class="menu-title">Menu</h2>
       <section class="menu-section">
         <h3>Sound</h3>
         <button class="btn btn--small toggle" data-m="sound" aria-pressed="${!isMuted()}">${isMuted() ? "Off" : "On"}</button>
       </section>
+      ${friends}
+      ${local ? `
       <section class="menu-section">
         <h3 id="size-label">Players at the table</h3>
         <div class="seg" role="radiogroup" aria-labelledby="size-label">
-          ${[2, 3, 4, 5].map((n) => `<button class="btn btn--small" role="radio" aria-checked="${n === seatsNow}" data-m="size" data-n="${n}">${n}</button>`).join("")}
+          ${[2, 3, 4, 5].map((n) => `<button class="btn btn--small" role="radio" aria-checked="${n === local.seats}" data-m="size" data-n="${n}">${n}</button>`).join("")}
         </div>
-        <p class="menu-note">${this.running && this.pendingSize !== null ? "Changes when this hand ends." : "You plus computer opponents."}</p>
-      </section>
+        <p class="menu-note">${local.busy ? "Changes when this hand ends." : "You plus computer opponents."}</p>
+      </section>` : ""}
       <section class="menu-section">
         <h3>Your stats</h3>
         <dl class="stats">
-          <dt>Chips</dt><dd>${fmt(this.state.seats[HUMAN]!.stack)}</dd>
+          ${local && me ? `<dt>Chips</dt><dd>${fmt(me.stack)}</dd>` : ""}
           <dt>Hands played</dt><dd>${fmt(st.handsPlayed)}</dd>
           <dt>Hands won</dt><dd>${fmt(st.handsWon)}</dd>
           <dt>Biggest pot</dt><dd>${fmt(st.biggestPot)}</dd>
@@ -464,11 +588,35 @@ export class TableApp {
       </div>
       <p class="menu-note">Play chips only. No real money.</p>`;
     if (best) m.querySelector(".best-cards")!.append(...best.cards.map((c) => cardEl(parseCard(c), "sm")));
-    m.querySelectorAll<HTMLButtonElement>("[data-m]").forEach((b) => {
+
+    m.querySelector<HTMLFormElement>('form[data-m="join"]')?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const input = (e.target as HTMLFormElement).querySelector("input")!;
+      const code = input.value.trim().toUpperCase();
+      if (isValidCode(code)) location.href = `${homeUrl()}?table=${code}`;
+      else {
+        input.setCustomValidity("Codes are 5 letters and numbers.");
+        input.reportValidity();
+      }
+    });
+    m.querySelectorAll<HTMLButtonElement>("button[data-m]").forEach((b) => {
       b.onclick = () => {
         switch (b.dataset.m) {
           case "sound": this.toggleMute(); break;
-          case "size": this.changeSize(Number(b.dataset.n)); break;
+          case "size":
+            this.saved.players = Number(b.dataset.n);
+            this.persist();
+            local?.setSize(this.saved.players);
+            this.renderMenu();
+            break;
+          case "create": location.href = `${homeUrl()}?table=${randomCode()}`; break;
+          case "invite": void this.invite(); break;
+          case "leave":
+            online?.leave();
+            setTimeout(() => (location.href = homeUrl()), 400);
+            break;
+          case "addbot": online?.addBot(); break;
+          case "remove": online?.removeBot(Number(b.dataset.seat)); break;
           case "reset":
             if (!confirmReset) return this.renderMenu(true);
             this.saved.stats = emptyStats();
@@ -481,48 +629,37 @@ export class TableApp {
     });
   }
 
-  private changeSize(n: number): void {
-    if (n === (this.pendingSize ?? this.state.seats.length)) return;
-    this.saved.players = n;
-    this.persist();
-    if (this.running) this.pendingSize = n;
-    else {
-      this.pendingSize = null;
-      this.setupTable(n, this.state.seats[HUMAN]!.stack);
-      this.message = "";
-      this.render();
-    }
-    this.renderMenu();
-  }
-
   // ---------------------------------------------------------------- drawing
 
   private render(): void {
-    const s = this.state;
-    const h = s.hand;
-    this.el.handNo.textContent = h ? `Hand ${h.number}` : "";
+    const v = this.view;
+    const h = v.hand;
+    this.el.handNo.textContent = this.online ? `Table ${this.online.code}` : h ? `Hand ${h.number}` : "";
     this.el.log.textContent = this.message;
 
     const result = h?.result ?? null;
     const winners = new Set<number>();
     if (result && this.pendingWin !== null) for (const pot of result.pots) pot.winners.forEach((w) => winners.add(w));
     const winCards = result?.pots[0]?.hand?.cards ?? [];
-    const showdown = !!result?.showdown;
+    const showdown = !!result?.showdown && !this.holdReveal;
     const mark = (c: Card) => (showdown ? (winCards.some((w) => sameCard(w, c)) ? "is-win" : "is-dim") : "");
 
     // Seats and bets
-    const upper: HTMLElement[] = [];
-    const newBets: [HTMLElement, number][] = [];
+    const slots = OPPONENT_SLOTS[Math.max(1, v.seats.length - 1)] ?? OPPONENT_SLOTS[4]!;
     // Slot heights are designed for a 196px top area; squeeze them on short screens.
     const k = Math.min(1, (this.el.upper.clientHeight || 196) / 196);
-    for (const p of s.seats) {
+    const upper: HTMLElement[] = [];
+    const newBets: [HTMLElement, number][] = [];
+    this.el.me.replaceChildren();
+    this.el.myBet.replaceChildren();
+    for (const p of v.seats) {
       const seatEl = this.seatEl(p, winners.has(p.id), mark);
       const betEl = this.betEl(p.id);
       if (p.id === HUMAN) {
         this.el.me.replaceChildren(seatEl);
-        this.el.myBet.replaceChildren(...(betEl ? [betEl] : []));
+        if (betEl) this.el.myBet.replaceChildren(betEl);
       } else {
-        const slot = this.slots[p.id - 1]!;
+        const slot = slots[p.id - 1]!;
         seatEl.style.left = `${slot.x}%`;
         seatEl.style.top = `${Math.round(slot.y * k)}px`;
         upper.push(seatEl);
@@ -533,7 +670,7 @@ export class TableApp {
           upper.push(betEl);
         }
       }
-      if (betEl && this.bets[p.id]! > this.drawnBets[p.id]!) newBets.push([betEl, p.id]);
+      if (betEl && (this.bets[p.id] ?? 0) > (this.drawnBets[p.id] ?? 0)) newBets.push([betEl, p.id]);
     }
     this.el.upper.replaceChildren(...upper);
     this.drawnBets = [...this.bets];
@@ -546,16 +683,16 @@ export class TableApp {
 
     // Board
     const board = h ? h.board.slice(0, this.shownBoard) : [];
-    const slots: HTMLElement[] = [];
+    const cards: HTMLElement[] = [];
     for (let i = 0; i < 5; i++) {
       const c = board[i];
-      slots.push(c ? cardEl(c, "md", mark(c)) : emptySlotEl("md"));
+      cards.push(c ? cardEl(c, "md", mark(c)) : emptySlotEl("md"));
     }
-    this.el.board.replaceChildren(...slots);
+    this.el.board.replaceChildren(...cards);
     this.el.board.setAttribute("aria-label", board.length ? `Board: ${cardList(board)}` : "Board: no cards yet");
 
     // Pot: chips gathered in the middle (bets still in front of players are not in it yet).
-    const committed = s.seats.reduce((sum, p) => sum + p.committed, 0);
+    const committed = v.seats.reduce((sum, p) => sum + p.committed, 0);
     const pending = this.bets.reduce((sum, b) => sum + b, 0);
     const finished = h?.street === "complete" && this.pendingWin === null;
     const pot = h && !finished ? committed - pending : 0;
@@ -568,7 +705,7 @@ export class TableApp {
   }
 
   private betEl(seat: number): HTMLElement | null {
-    const amount = this.bets[seat]!;
+    const amount = this.bets[seat] ?? 0;
     if (amount <= 0) return null;
     const el = document.createElement("div");
     el.className = "bet";
@@ -577,24 +714,39 @@ export class TableApp {
     return el;
   }
 
-  private seatEl(p: Seat, winner: boolean, mark: (c: Card) => string): HTMLElement {
-    const h = this.state.hand;
+  private seatEl(p: SeatView, winner: boolean, mark: (c: Card) => string): HTMLElement {
+    const h = this.view.hand;
     const isMe = p.id === HUMAN;
+    const roomSeat = this.room?.seats[p.id];
     const el = document.createElement("div");
     el.dataset.seat = String(p.id);
-    const toAct = !!h && h.toAct === p.id && h.street !== "complete";
+
+    if (roomSeat?.kind === "open" && !isMe) {
+      el.className = "seat seat--opp seat--open";
+      el.setAttribute("role", "group");
+      el.setAttribute("aria-label", "Open seat");
+      el.innerHTML = `<div class="seat-top"><div class="avatar avatar--open" aria-hidden="true"></div></div><div class="seat-info" aria-hidden="true"><span class="name">Open</span></div>`;
+      return el;
+    }
+
+    const running = !!h && h.street !== "complete";
+    const toAct = running && h!.toAct === p.id;
+    const away = roomSeat?.kind === "human" && (roomSeat.away || !roomSeat.connected);
     el.className = [
       "seat", isMe ? "seat--me" : "seat--opp", toAct ? "is-turn" : "", p.status === "folded" ? "is-folded" : "",
-      p.status === "out" ? "is-out" : "", winner ? "is-winner" : "",
+      p.status === "out" || away ? "is-out" : "", winner ? "is-winner" : "",
     ].filter(Boolean).join(" ");
 
     const stack = p.stack - (this.pendingWin?.[p.id] ?? 0);
-    const tag = p.status === "allin" ? "All in" : p.status === "folded" ? "Fold" : p.lastAction ? tagText(p.lastAction.kind) : "";
-    const thinking = this.thinking === p.id;
+    const tag = away ? "Away" : p.status === "allin" ? "All in" : p.status === "folded" ? "Fold"
+      : p.lastAction ? tagText(p.lastAction.kind) : "";
+    const thinking = toAct && !isMe && !this.animating;
+    const name = isMe ? "You" : p.name;
     el.setAttribute("role", "group");
     el.setAttribute("aria-label", [
-      isMe ? "You" : p.name,
+      name,
       `${fmt(stack)} chips`,
+      roomSeat?.host ? "host" : "",
       h?.dealer === p.id ? "dealer button" : "",
       this.bets[p.id] ? `bet ${fmt(this.bets[p.id]!)}` : "",
       tag && !isMe ? tag.toLowerCase() : "",
@@ -603,13 +755,15 @@ export class TableApp {
 
     const key = this.avatars[p.id] ?? "you";
     const avatar = `<div class="avatar" style="--c:${avatarBg(key)}" aria-hidden="true">${avatarSVG(key)}</div>`;
+    const timer = toAct && this.turnDeadline !== null ? '<span class="timer" aria-hidden="true"><i></i></span>' : "";
     const extras = `
       ${h?.dealer === p.id ? '<span class="dealer" aria-hidden="true">D</span>' : ""}
       ${tag && !isMe ? `<span class="tag" aria-hidden="true">${tag}</span>` : ""}
-      ${thinking ? '<span class="thinking" aria-hidden="true"><i></i><i></i><i></i></span>' : ""}`;
+      ${thinking ? '<span class="thinking" aria-hidden="true"><i></i><i></i><i></i></span>' : ""}
+      ${timer}`;
     const info = `
       <div class="seat-info" aria-hidden="true">
-        <span class="name">${p.name}</span>
+        <span class="name">${esc(name)}</span>
         <span class="stack">${fmt(stack)}</span>
       </div>`;
     el.innerHTML = isMe
@@ -617,13 +771,14 @@ export class TableApp {
       : `<div class="seat-top">${avatar}<div class="seat-cards"></div></div>${info}${extras}`;
 
     const cards = el.querySelector<HTMLElement>(".seat-cards")!;
-    if (h && p.hole.length && p.status !== "folded") {
+    if (h && p.cardCount && p.status !== "folded") {
       if (isMe) {
         for (const c of p.hole) cards.append(cardEl(c, "lg", mark(c)));
         cards.setAttribute("aria-label", `Your cards: ${cardList(p.hole)}`);
       } else {
-        const reveal = !!h.result?.showdown && !!h.result.hands[p.id];
-        for (const c of p.hole) cards.append(reveal ? cardEl(c, "sm", mark(c)) : cardBackEl("sm"));
+        const reveal = p.hole.length > 0 && !this.holdReveal;
+        if (reveal) for (const c of p.hole) cards.append(cardEl(c, "sm", mark(c)));
+        else for (let i = 0; i < p.cardCount; i++) cards.append(cardBackEl("sm"));
         cards.setAttribute("aria-label", reveal ? `${p.name}'s cards: ${cardList(p.hole)}` : `${p.name}'s cards, face down`);
         if (reveal) cards.classList.add("is-revealed");
       }
@@ -638,44 +793,100 @@ export class TableApp {
     return el;
   }
 
-  private renderControls(): void {
-    const s = this.state;
-    const c = this.el.controls;
-    const legal = this.local.waitingFor;
+  /** Shrink the turn timer bar to the time left. */
+  private renderTimer(): void {
+    const bar = this.el.felt.querySelector<HTMLElement>(".timer i");
+    const total = this.room?.turnMs ?? 30_000;
+    if (!bar || this.turnDeadline === null) return;
+    const left = Math.max(0, this.turnDeadline - Date.now());
+    bar.style.transform = `scaleX(${left / total})`;
+    bar.classList.toggle("is-low", left < 8000);
+    const note = this.el.controls.querySelector<HTMLElement>(".turn-left");
+    if (note) note.textContent = `${Math.ceil(left / 1000)}s`;
+  }
 
-    if (!this.running && (!s.hand || isBetweenHands(s))) {
-      const broke = s.seats[HUMAN]!.stack === 0;
-      c.innerHTML = `
-        <div class="row row--quick"></div>
-        <p class="controls-note">${broke ? "You are out of chips." : ""}</p>
-        <div class="row"><button class="btn btn--go" data-do="next">${broke ? `Rebuy ${fmt(START_STACK)}` : s.hand ? "Next hand" : "Deal"}</button></div>`;
-      c.querySelector<HTMLButtonElement>("[data-do]")!.onclick = () => {
-        if (broke) {
-          this.state = rebuy(this.state, HUMAN, START_STACK);
-          this.saved.stats.rebuys++;
-          this.persist();
-          sfx.chips();
-          this.say(`You rebuy for ${fmt(START_STACK)}.`);
-          this.render();
-        } else void this.playHand();
-      };
-      return;
+  private renderControls(): void {
+    const v = this.view;
+    const c = this.el.controls;
+    const legal = this.animating || this.sentAction ? null : v.legal;
+    const me = v.seats[HUMAN];
+    const online = this.online;
+    const room = this.room;
+
+    const shell = (quick: string, note: string, row: string) => {
+      c.innerHTML = `<div class="row row--quick">${quick}</div><p class="controls-note">${note}</p><div class="row">${row}</div>`;
+    };
+    const wire = () =>
+      c.querySelectorAll<HTMLButtonElement>("button[data-do]").forEach((b) => {
+        b.onclick = () => {
+          switch (b.dataset.do) {
+            case "next": void this.local?.next(); break;
+            case "rebuy":
+              this.saved.stats.rebuys++;
+              this.persist();
+              sfx.chips();
+              this.source?.rebuy();
+              this.say(`You rebuy for ${fmt(START_STACK)}.`);
+              break;
+            case "start": online?.startGame(); break;
+            case "addbot": online?.addBot(); break;
+            case "invite": void this.invite(); break;
+            case "back": online?.back(); break;
+            case "solo": location.href = homeUrl(); break;
+          }
+        };
+      });
+    const disabledRow = '<button class="btn" disabled>Fold</button><button class="btn" disabled>Check</button><button class="btn" disabled>Raise</button>';
+
+    // Online, before the table has answered.
+    if (online && !this.joined) {
+      shell("", "", '<button class="btn btn--small" data-do="solo">Play solo instead</button>');
+      return wire();
+    }
+
+    // Online lobby: the host adds bots and starts; everyone can invite.
+    if (online && room && !room.started) {
+      const seated = room.seats.filter((s) => s.kind !== "open").length;
+      if (room.seats[HUMAN]?.host) {
+        shell(
+          `<button class="btn btn--small" data-do="invite">Invite</button><button class="btn btn--small" data-do="addbot">Add bot</button>`,
+          seated < 2 ? "Invite a friend or add a bot." : `${seated} players seated.`,
+          `<button class="btn btn--go" data-do="start" ${seated < 2 ? "disabled" : ""}>Start game</button>`,
+        );
+      } else {
+        shell(`<button class="btn btn--small" data-do="invite">Invite</button>`, "Waiting for the host to start.", disabledRow);
+      }
+      return wire();
     }
 
     if (!legal) {
-      const h = s.hand;
-      const waiting = h && h.toAct !== null && h.street !== "complete" ? `Waiting for ${s.seats[h.toAct]!.name}` : "";
-      c.innerHTML = `
-        <div class="row row--quick"></div>
-        <p class="controls-note">${waiting}</p>
-        <div class="row"><button class="btn" disabled>Fold</button><button class="btn" disabled>Check</button><button class="btn" disabled>Raise</button></div>`;
+      const h = v.hand;
+      const running = !!h && h.street !== "complete";
+      const broke = !!me && me.stack === 0 && (!running || me.status === "out");
+      if (!this.animating && broke && (online || !this.local?.busy)) {
+        shell("", "You are out of chips.", `<button class="btn btn--go" data-do="rebuy">Rebuy ${fmt(START_STACK)}</button>`);
+        return wire();
+      }
+      if (online && room?.seats[HUMAN]?.away) {
+        shell("", "You are sitting out.", `<button class="btn btn--go" data-do="back">I'm back</button>`);
+        return wire();
+      }
+      if (!online && !this.animating && !this.local?.busy && viewBetweenHands(v)) {
+        shell("", "", `<button class="btn btn--go" data-do="next">${h ? "Next hand" : "Deal"}</button>`);
+        return wire();
+      }
+      let note = "";
+      if (running && h!.toAct !== null && h!.toAct !== HUMAN) note = `Waiting for ${esc(v.seats[h!.toAct]?.name ?? "")}`;
+      else if (online && running && me?.status === "out") note = "You join in the next hand.";
+      else if (online && !running) note = "Next hand starting soon.";
+      shell("", note, disabledRow);
       return;
     }
 
     this.raiseTo = Math.min(Math.max(this.raiseTo, legal.minRaiseTo), legal.maxRaiseTo);
     const word = legal.isBet ? "Bet" : "Raise to";
     const raiseLabel = () => label(this.raiseTo === legal.maxRaiseTo ? "All in" : word, this.raiseTo);
-    const callIsAllIn = legal.toCall === s.seats[HUMAN]!.stack;
+    const callIsAllIn = legal.toCall === (me?.stack ?? 0);
 
     c.innerHTML = `
       <div class="row row--quick">${legal.canRaise ? `
@@ -686,6 +897,7 @@ export class TableApp {
       </div>
       <div class="row row--slider">${legal.canRaise ? `
         <input type="range" class="slider" min="${legal.minRaiseTo}" max="${legal.maxRaiseTo}" step="1" value="${this.raiseTo}" aria-label="Raise amount">` : ""}
+        ${online && this.turnDeadline !== null ? '<span class="turn-left" aria-hidden="true"></span>' : ""}
       </div>
       <div class="row">
         <button class="btn btn--fold" data-act="fold" ${legal.canCheck ? "disabled" : ""}>Fold</button>
@@ -703,9 +915,9 @@ export class TableApp {
       raiseBtn.innerHTML = raiseLabel();
     };
     slider?.addEventListener("input", () => {
-      const v = Number(slider.value);
+      const val = Number(slider.value);
       // Snap to multiples of 5, but keep both ends reachable.
-      setTo(v >= legal.maxRaiseTo ? legal.maxRaiseTo : Math.max(legal.minRaiseTo, round5(v)));
+      setTo(val >= legal.maxRaiseTo ? legal.maxRaiseTo : Math.max(legal.minRaiseTo, round5(val)));
     });
     c.querySelectorAll<HTMLButtonElement>("[data-preset]").forEach((b) => {
       b.onclick = () => setTo(this.presetTo(b.dataset.preset as "min" | "half" | "pot" | "all", legal));
@@ -713,15 +925,16 @@ export class TableApp {
     c.querySelectorAll<HTMLButtonElement>("[data-act]").forEach((b) => {
       b.onclick = () => {
         const kind = b.dataset.act!;
-        if (kind === "raise") this.local.submit({ type: "raise", to: this.raiseTo });
-        else this.local.submit({ type: kind as "fold" | "check" | "call" });
+        if (kind === "raise") this.act({ type: "raise", to: this.raiseTo });
+        else this.act({ type: kind as "fold" | "check" | "call" });
       };
     });
+    this.renderTimer();
   }
 
   private presetTo(kind: "min" | "half" | "pot" | "all", legal: LegalActions): number {
-    const h = this.state.hand!;
-    const pot = this.state.seats.reduce((s, p) => s + p.committed, 0);
+    const h = this.view.hand!;
+    const pot = this.view.seats.reduce((s, p) => s + p.committed, 0);
     const afterCall = pot + legal.toCall;
     let to: number;
     if (kind === "min") to = legal.minRaiseTo;
@@ -757,11 +970,11 @@ function actionText(name: string, isMe: boolean, kind: string, amount: number, a
   }
 }
 
-function resultText(state: GameState): string {
-  const r = state.hand!.result!;
-  const name = (seat: number) => (seat === HUMAN ? "You" : state.seats[seat]!.name);
+function resultText(view: TableView, r: HandResult): string {
+  const name = (seat: number) => (seat === HUMAN ? "You" : view.seats[seat]?.name ?? "");
   const verb = (seat: number) => (seat === HUMAN ? "win" : "wins");
-  const first = r.pots[0]!;
+  const first = r.pots[0];
+  if (!first) return "";
   // One player took every pot: say it once, with the total.
   if (first.winners.length === 1 && r.pots.every((p) => p.winners.length === 1 && p.winners[0] === first.winners[0])) {
     const w = first.winners[0]!;
@@ -770,13 +983,13 @@ function resultText(state: GameState): string {
   }
   return r.pots
     .map((pot, i) => {
-      const label = r.pots.length > 1 ? (i === 0 ? "Main pot: " : r.pots.length > 2 ? `Side pot ${i}: ` : "Side pot: ") : "";
+      const tag = r.pots.length > 1 ? (i === 0 ? "Main pot: " : r.pots.length > 2 ? `Side pot ${i}: ` : "Side pot: ") : "";
       const how = pot.handText ? ` with ${lowerFirst(pot.handText)}` : "";
       if (pot.winners.length > 1) {
-        return `${label}Split. ${pot.winners.map(name).join(" and ")} each win ${fmt(pot.shares[pot.winners.length - 1]!)}${how}.`;
+        return `${tag}Split. ${pot.winners.map(name).join(" and ")} each win ${fmt(pot.shares[pot.winners.length - 1]!)}${how}.`;
       }
       const w = pot.winners[0]!;
-      return `${label}${name(w)} ${verb(w)} ${fmt(pot.amount)}${how}.`;
+      return `${tag}${name(w)} ${verb(w)} ${fmt(pot.amount)}${how}.`;
     })
     .join(" ");
 }

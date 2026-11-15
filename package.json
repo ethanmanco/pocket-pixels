@@ -5,21 +5,27 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc -p server/tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "icons": "node scripts/make-icons.mjs",
-    "demo": "node scripts/record-demo.mjs"
+    "demo": "node scripts/record-demo.mjs",
+    "server": "wrangler dev -c server/wrangler.jsonc --ip 0.0.0.0 --port 8787",
+    "deploy:server": "wrangler deploy -c server/wrangler.jsonc",
+    "typecheck:server": "tsc -p server/tsconfig.json",
+    "server:local": "vite build --base / --outDir dist-local --mode localtest && wrangler dev -c server/wrangler.local.jsonc --ip 0.0.0.0 --port 8787"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261031.1",
     "gifenc": "1.0.3",
     "pngjs": "7.0.0",
     "puppeteer-core": "25.16.0",
     "typescript": "5.9.3",
     "vite": "8.3.8",
     "vite-plugin-pwa": "2.0.0",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "wrangler": "4.156.0"
   },
   "dependencies": {
     "@fontsource/silkscreen": "5.3.0"

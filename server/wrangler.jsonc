@@ -1,0 +1,14 @@
+{
+  // Pocket Pixels table server (Cloudflare Workers Free plan).
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "pocket-pixels-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "TABLES", "class_name": "Table" }]
+  },
+  // The Free plan needs SQLite-backed Durable Objects.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Table"] }],
+  // Served at https://pocket-pixels.mancolabs.dev (Cloudflare creates the DNS record on deploy).
+  "routes": [{ "pattern": "pocket-pixels.mancolabs.dev", "custom_domain": true }]
+}
