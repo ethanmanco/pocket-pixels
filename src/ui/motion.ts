@@ -1,4 +1,4 @@
-// Moving chips around the table.
+// Moving chips and cards around the table.
 
 import { sleep } from "./timing";
 
@@ -7,8 +7,14 @@ export function center(el: Element): { x: number; y: number } {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
+/** Wait for an animation, but never longer than its length plus a little (paused pages). */
+function settle(anim: Animation, ms: number): Promise<void> {
+  return Promise.race([anim.finished.then(() => undefined, () => undefined), sleep(ms + 200)]);
+}
+
 export interface SlideOptions {
   duration: number;
+  delay?: number;
   fade?: "in" | "out";
   shrink?: boolean;
 }
@@ -17,9 +23,6 @@ export interface SlideOptions {
  * Animate `el` from the center of `from` to the center of `to`. Offsets are
  * relative to where `el` sits, so `slide(el, seat, el)` brings it in from a
  * seat and `slide(el, el, pot)` sends it to the pot.
- *
- * Resolves when the animation ends, or shortly after its duration at the
- * latest, so a paused page (an app switch, a hidden tab) never stalls a hand.
  */
 export function slide(el: HTMLElement, from: Element, to: Element, opts: SlideOptions): Promise<void> {
   const a = center(from);
@@ -37,7 +40,19 @@ export function slide(el: HTMLElement, from: Element, to: Element, opts: SlideOp
         opacity: opts.fade === "out" ? 0 : 1,
       },
     ],
-    { duration: opts.duration, easing: "ease-in-out", fill: "forwards" },
+    { duration: opts.duration, delay: opts.delay ?? 0, easing: "ease-in-out", fill: "both" },
   );
-  return Promise.race([anim.finished.then(() => undefined, () => undefined), sleep(opts.duration + 200)]);
+  return settle(anim, opts.duration + (opts.delay ?? 0));
+}
+
+/** Turn a card over: squeeze to nothing and open back up, in a few blocky steps. */
+export function flipIn(el: HTMLElement, delay = 0, duration = 260): Promise<void> {
+  const anim = el.animate(
+    [
+      { transform: "scaleX(0)", filter: "brightness(1.6)" },
+      { transform: "scaleX(1)", filter: "brightness(1)" },
+    ],
+    { duration, delay, easing: "steps(5, end)", fill: "both" },
+  );
+  return settle(anim, duration + delay);
 }

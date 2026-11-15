@@ -1,30 +1,35 @@
 // The table screen. It runs the hand loop (asking each seat's driver for an
-// action), animates chips, and draws everything as plain DOM.
+// action), animates cards and chips, plays sounds, keeps your chips and stats,
+// and draws everything as plain DOM.
 //
 // Layout, top to bottom: opponents along the top arc (with their bets below
 // them), the board and pot in the middle, your bet, then you.
 
 import { type BotPersonality, STYLES } from "../engine/bot";
-import { type Card, rankName, sameCard } from "../engine/cards";
+import { type Card, cardCode, parseCard, rankName, sameCard } from "../engine/cards";
 import { evaluateHand } from "../engine/evaluate";
 import {
   type GameEvent, type GameState, type LegalActions, type Seat,
   applyAction, createGame, isBetweenHands, rebuy, startHand, viewFor,
 } from "../engine/game";
 import { Rng, randomSeed } from "../engine/rng";
+import { avatarBg, avatarSVG } from "./avatars";
 import { cardBackEl, cardEl, cardList, emptySlotEl } from "./cards";
 import { chipsSVG, pileColumns, stackColumn } from "./chips";
 import { BotDriver, LocalDriver, type SeatDriver } from "./drivers";
-import { slide } from "./motion";
+import { flipIn, slide } from "./motion";
+import { pixelSVG } from "./pixels";
+import { isMuted, setMuted, sfx, unlockAudio } from "./sfx";
+import { type Saved, START_STACK, emptyStats, load, save } from "./storage";
+import { paintTable } from "./table";
 import { reducedMotion, sleep } from "./timing";
 
 const HUMAN = 0;
-const START_STACK = 1000;
 
 export interface Opponent {
   name: string;
   personality: BotPersonality;
-  color: string;
+  avatar: string;
 }
 
 /**
@@ -35,26 +40,44 @@ interface Slot { x: number; y: number; bx: number; by: number }
 
 // Opponents sit clockwise from your left. One layout per table size.
 const OPPONENT_SLOTS: Record<number, Slot[]> = {
-  1: [{ x: 50, y: 14, bx: 50, by: 134 }],
-  2: [{ x: 32, y: 14, bx: 32, by: 134 }, { x: 68, y: 14, bx: 68, by: 134 }],
-  3: [{ x: 14, y: 52, bx: 14, by: 166 }, { x: 50, y: 12, bx: 50, by: 130 }, { x: 86, y: 52, bx: 86, by: 166 }],
+  1: [{ x: 50, y: 18, bx: 50, by: 138 }],
+  2: [{ x: 32, y: 18, bx: 32, by: 138 }, { x: 68, y: 18, bx: 68, by: 138 }],
+  3: [{ x: 15, y: 56, bx: 15, by: 170 }, { x: 50, y: 16, bx: 50, by: 134 }, { x: 85, y: 56, bx: 85, by: 170 }],
   4: [
-    { x: 13, y: 52, bx: 13, by: 166 }, { x: 37, y: 12, bx: 37, by: 130 },
-    { x: 63, y: 12, bx: 63, by: 130 }, { x: 87, y: 52, bx: 87, by: 166 },
+    { x: 14, y: 56, bx: 14, by: 170 }, { x: 37, y: 16, bx: 37, by: 134 },
+    { x: 63, y: 16, bx: 63, by: 134 }, { x: 86, y: 56, bx: 86, by: 170 },
   ],
 };
+
+/** Which opponents sit at smaller tables (seating order is kept). */
+const TABLE_PICKS: Record<number, string[]> = {
+  2: ["Blaze"],
+  3: ["Pebble", "Blaze"],
+  4: ["Pebble", "Juniper", "Blaze"],
+  5: ["Pebble", "Juniper", "Blaze", "Rook"],
+};
+
 const CHIP_SCALE = 3;
+
+const ICONS = {
+  soundOn: ["....X.....", "...XX..X..", "XXXXX...X.", "XXXXX.X.X.", "XXXXX.X.X.", "XXXXX...X.", "...XX..X..", "....X....."],
+  soundOff: ["....X.....", "...XX.....", "XXXXX.X.X.", "XXXXX..X..", "XXXXX.X.X.", "XXXXX.....", "...XX.....", "....X....."],
+  menu: ["XXXXXXXXX", "XXXXXXXXX", ".........", "XXXXXXXXX", "XXXXXXXXX", ".........", "XXXXXXXXX", "XXXXXXXXX"],
+};
+const icon = (rows: string[]) => pixelSVG(rows, { X: "currentColor" }, 3, "icon");
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const round5 = (n: number) => Math.round(n / 5) * 5;
 
 export class TableApp {
-  private state: GameState;
+  private state!: GameState;
   private rng = new Rng(randomSeed());
-  private drivers: SeatDriver[];
+  private drivers: SeatDriver[] = [];
   private local: LocalDriver;
-  private colors: string[];
-  private slots: Slot[];
+  private avatars: string[] = [];
+  private slots: Slot[] = [];
+  private saved: Saved;
+  private pendingSize: number | null = null;
 
   /** A hand is being played or animated. */
   private running = false;
@@ -63,8 +86,8 @@ export class TableApp {
   /** Board cards shown so far (all-in runouts reveal one street at a time). */
   private shownBoard = 0;
   /** Chips shown in front of each player this street (lags the engine while chips animate). */
-  private bets: number[];
-  private drawnBets: number[];
+  private bets: number[] = [];
+  private drawnBets: number[] = [];
   /** Winnings not yet slid over to the winners' stacks. */
   private pendingWin: number[] | null = null;
   private message = "";
@@ -73,33 +96,25 @@ export class TableApp {
   private el: {
     felt: HTMLElement; upper: HTMLElement; board: HTMLElement; pot: HTMLElement; myBet: HTMLElement;
     me: HTMLElement; log: HTMLElement; live: HTMLElement; controls: HTMLElement; handNo: HTMLElement;
+    mute: HTMLButtonElement; menuBtn: HTMLButtonElement; menu: HTMLDialogElement;
   };
 
-  constructor(root: HTMLElement, opponents: Opponent[]) {
-    this.state = createGame({
-      players: [{ name: "You", personality: "human" }, ...opponents],
-      stack: START_STACK,
-      seed: randomSeed(),
-    });
-    const n = this.state.seats.length;
-    this.colors = ["#ffd166", ...opponents.map((o) => o.color)];
-    this.slots = OPPONENT_SLOTS[opponents.length] ?? OPPONENT_SLOTS[4]!;
-    this.bets = new Array<number>(n).fill(0);
-    this.drawnBets = [...this.bets];
+  constructor(root: HTMLElement, private roster: Opponent[]) {
+    this.saved = load();
+    setMuted(this.saved.muted);
 
     this.local = new LocalDriver(() => {
       this.raiseTo = this.local.waitingFor?.minRaiseTo ?? 0;
+      sfx.turn();
       this.render();
     });
-    this.drivers = [
-      this.local,
-      ...opponents.map((o) => new BotDriver(STYLES[o.personality], this.rng, () => 450 + this.rng.int(450))),
-    ];
 
     root.innerHTML = `
       <header class="topbar">
         <h1 class="title">Pocket Pixels</h1>
         <span class="hand-no"></span>
+        <button class="icon-btn" data-ui="mute"></button>
+        <button class="icon-btn" data-ui="menu" aria-label="Menu and stats" aria-haspopup="dialog">${icon(ICONS.menu)}</button>
       </header>
       <main class="felt" aria-label="Poker table">
         <div class="upper"></div>
@@ -112,17 +127,77 @@ export class TableApp {
       </main>
       <p class="log" aria-hidden="true"></p>
       <p class="sr-only" role="status" aria-live="polite"></p>
-      <footer class="controls" aria-label="Your actions"></footer>`;
-    const q = (s: string) => root.querySelector<HTMLElement>(s)!;
+      <footer class="controls" aria-label="Your actions"></footer>
+      <dialog class="menu" aria-labelledby="menu-title"></dialog>`;
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
     this.el = {
       felt: q(".felt"), upper: q(".upper"), board: q(".board"), pot: q(".pot"), myBet: q(".my-bet"), me: q(".me"),
       log: q(".log"), live: q('[role="status"]'), controls: q(".controls"), handNo: q(".hand-no"),
+      mute: q('[data-ui="mute"]'), menuBtn: q('[data-ui="menu"]'), menu: q("dialog"),
     };
+    paintTable(this.el.felt);
+
+    // Browsers only start audio after a tap.
+    for (const type of ["pointerdown", "keydown"] as const) document.addEventListener(type, unlockAudio);
+    this.el.mute.onclick = () => this.toggleMute();
+    this.el.menuBtn.onclick = () => this.openMenu();
+    this.renderMute();
+
+    this.setupTable(this.saved.players, this.saved.chips);
     this.render();
   }
 
   start(): void {
-    void this.playHand();
+    if (this.state.seats[HUMAN]!.stack > 0) void this.playHand();
+  }
+
+  /** Seat a fresh table of `players` (you plus bots), keeping your chips. */
+  private setupTable(players: number, myChips: number): void {
+    const names = TABLE_PICKS[players] ?? TABLE_PICKS[5]!;
+    const opponents = this.roster.filter((o) => names.includes(o.name));
+    this.state = createGame({
+      players: [{ name: "You", personality: "human" }, ...opponents],
+      stack: START_STACK,
+      seed: randomSeed(),
+    });
+    this.state.seats[HUMAN]!.stack = myChips;
+    const n = this.state.seats.length;
+    this.avatars = ["you", ...opponents.map((o) => o.avatar)];
+    this.slots = OPPONENT_SLOTS[opponents.length] ?? OPPONENT_SLOTS[4]!;
+    this.bets = new Array<number>(n).fill(0);
+    this.drawnBets = [...this.bets];
+    this.drivers = [
+      this.local,
+      ...opponents.map((o) => new BotDriver(STYLES[o.personality], this.rng, () => 450 + this.rng.int(450))),
+    ];
+  }
+
+  // ---------------------------------------------------------------- saving
+
+  private persist(): void {
+    this.saved.chips = this.state.seats[HUMAN]!.stack;
+    this.saved.muted = isMuted();
+    save(this.saved);
+  }
+
+  private recordHand(): void {
+    const h = this.state.hand!;
+    const r = h.result!;
+    const me = this.state.seats[HUMAN]!;
+    if (!me.hole.length) return;
+    const st = this.saved.stats;
+    st.handsPlayed++;
+    const won = r.won[HUMAN] ?? 0;
+    if (won > 0) {
+      st.handsWon++;
+      st.biggestPot = Math.max(st.biggestPot, won);
+    }
+    if (me.status !== "folded" && h.board.length === 5) {
+      const hand = evaluateHand([...me.hole, ...h.board]);
+      if (!st.bestHand || hand.score > st.bestHand.score) {
+        st.bestHand = { score: hand.score, name: hand.name, cards: hand.cards.map(cardCode) };
+      }
+    }
   }
 
   // ---------------------------------------------------------------- hand loop
@@ -130,6 +205,10 @@ export class TableApp {
   private async playHand(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    if (this.pendingSize !== null) {
+      this.setupTable(this.pendingSize, this.state.seats[HUMAN]!.stack);
+      this.pendingSize = null;
+    }
     for (const p of this.state.seats) {
       if (p.id !== HUMAN && p.stack === 0) {
         this.state = rebuy(this.state, p.id, START_STACK);
@@ -150,6 +229,7 @@ export class TableApp {
       this.thinking = null;
       const step = applyAction(this.state, seat, action);
       this.state = step.state;
+      this.persist();
       await this.show(step.events);
     }
     this.running = false;
@@ -160,6 +240,7 @@ export class TableApp {
     const h = this.state.hand!;
     const name = (seat: number) => this.state.seats[seat]!.name;
     let streets = 0;
+    let blindSound = false;
     for (const e of events) {
       switch (e.type) {
         case "handStart":
@@ -169,16 +250,24 @@ export class TableApp {
           break;
         case "blind":
           this.bets[e.seat] = e.amount;
+          if (!blindSound) sfx.chips();
+          blindSound = true;
           break;
         case "deal": {
           const me = this.state.seats[HUMAN]!;
+          this.persist();
           if (me.hole.length) this.say(`Your cards: ${cardList(me.hole)}.`);
           this.render();
+          await this.dealAnimation(e.seats);
           break;
         }
         case "action":
           this.bets[e.seat] = e.amount;
           this.say(actionText(name(e.seat), e.seat === HUMAN, e.kind, e.amount, e.allIn));
+          if (e.kind === "fold") sfx.fold();
+          else if (e.kind === "check") sfx.check();
+          else if (e.allIn) sfx.allIn();
+          else sfx.chips();
           this.render();
           break;
         case "returned":
@@ -187,12 +276,14 @@ export class TableApp {
           this.render();
           break;
         case "street": {
-          await sleep(streets++ === 0 ? 250 : 800);
+          await sleep(streets++ === 0 ? 300 : 900);
           await this.gatherBets();
+          const before = this.shownBoard;
           this.shownBoard += e.cards.length;
           const label = e.street === "flop" ? "Flop" : e.street === "turn" ? "Turn" : "River";
           this.say(`${label}: ${cardList(e.cards)}.`);
           this.render();
+          await this.flipBoard(before, this.shownBoard);
           break;
         }
         case "handEnd":
@@ -200,9 +291,14 @@ export class TableApp {
           this.pendingWin = [...e.result.won];
           await this.gatherBets();
           this.shownBoard = h.board.length;
+          this.recordHand();
+          this.persist();
           this.say(resultText(this.state));
           this.render();
-          await sleep(e.result.showdown ? 1100 : 500);
+          if (e.result.showdown) await this.flipShowdown();
+          await sleep(e.result.showdown ? 1000 : 450);
+          if ((e.result.won[HUMAN] ?? 0) > 0) sfx.win();
+          else sfx.potSlide();
           await this.slideWinnings();
           this.pendingWin = null;
           this.render();
@@ -219,6 +315,38 @@ export class TableApp {
     this.el.log.textContent = text;
   }
 
+  // ---------------------------------------------------------------- card animation
+
+  /** Deal hole cards from the middle of the table, one at a time around the table. */
+  private async dealAnimation(seats: number[]): Promise<void> {
+    if (reducedMotion()) return;
+    const order: HTMLElement[] = [];
+    for (const round of [0, 1]) {
+      for (const seat of seats) {
+        const card = this.seatNode(seat)?.querySelectorAll<HTMLElement>(".seat-cards .card")[round];
+        if (card) order.push(card);
+      }
+    }
+    const step = 70;
+    order.forEach((_, i) => sfx.deal(i * step / 1000));
+    await Promise.all(order.map((card, i) => slide(card, this.el.board, card, { duration: 220, delay: i * step, fade: "in" })));
+  }
+
+  private async flipBoard(from: number, to: number): Promise<void> {
+    if (reducedMotion()) return;
+    const cards = [...this.el.board.querySelectorAll<HTMLElement>(".card")].slice(from, to);
+    cards.forEach((_, i) => sfx.flip(i * 0.11));
+    await Promise.all(cards.map((c, i) => flipIn(c, i * 110)));
+  }
+
+  private async flipShowdown(): Promise<void> {
+    if (reducedMotion()) return;
+    const cards = [...this.el.upper.querySelectorAll<HTMLElement>(".seat-cards .card:not(.card--back)")];
+    if (!cards.length) return;
+    sfx.flip();
+    await Promise.all(cards.map((c, i) => flipIn(c, Math.floor(i / 2) * 120)));
+  }
+
   // ---------------------------------------------------------------- chip animation
 
   private seatNode(seat: number): HTMLElement | null {
@@ -230,6 +358,7 @@ export class TableApp {
     if (!this.bets.some((b) => b > 0)) return;
     if (!reducedMotion()) {
       const bets = [...this.el.felt.querySelectorAll<HTMLElement>(".bet")];
+      sfx.chips();
       await Promise.all(bets.map((el) => slide(el, el, this.el.pot, { duration: 320, fade: "out" })));
     }
     this.bets.fill(0);
@@ -261,6 +390,99 @@ export class TableApp {
     this.el.pot.style.visibility = "hidden";
     await Promise.all(moves);
     this.el.pot.style.visibility = "";
+  }
+
+  // ---------------------------------------------------------------- sound + menu
+
+  private toggleMute(): void {
+    setMuted(!isMuted());
+    if (!isMuted()) {
+      unlockAudio();
+      sfx.chips();
+    }
+    this.persist();
+    this.renderMute();
+    if (this.el.menu.open) this.renderMenu();
+  }
+
+  private renderMute(): void {
+    const off = isMuted();
+    this.el.mute.innerHTML = icon(off ? ICONS.soundOff : ICONS.soundOn);
+    this.el.mute.setAttribute("aria-label", "Sound");
+    this.el.mute.setAttribute("aria-pressed", String(!off));
+    this.el.mute.title = off ? "Sound is off" : "Sound is on";
+  }
+
+  private openMenu(): void {
+    this.renderMenu();
+    this.el.menu.showModal();
+  }
+
+  private renderMenu(confirmReset = false): void {
+    const st = this.saved.stats;
+    const seatsNow = this.pendingSize ?? this.state.seats.length;
+    const best = st.bestHand;
+    const m = this.el.menu;
+    m.innerHTML = `
+      <h2 id="menu-title" class="menu-title">Menu</h2>
+      <section class="menu-section">
+        <h3>Sound</h3>
+        <button class="btn btn--small toggle" data-m="sound" aria-pressed="${!isMuted()}">${isMuted() ? "Off" : "On"}</button>
+      </section>
+      <section class="menu-section">
+        <h3 id="size-label">Players at the table</h3>
+        <div class="seg" role="radiogroup" aria-labelledby="size-label">
+          ${[2, 3, 4, 5].map((n) => `<button class="btn btn--small" role="radio" aria-checked="${n === seatsNow}" data-m="size" data-n="${n}">${n}</button>`).join("")}
+        </div>
+        <p class="menu-note">${this.running && this.pendingSize !== null ? "Changes when this hand ends." : "You plus computer opponents."}</p>
+      </section>
+      <section class="menu-section">
+        <h3>Your stats</h3>
+        <dl class="stats">
+          <dt>Chips</dt><dd>${fmt(this.state.seats[HUMAN]!.stack)}</dd>
+          <dt>Hands played</dt><dd>${fmt(st.handsPlayed)}</dd>
+          <dt>Hands won</dt><dd>${fmt(st.handsWon)}</dd>
+          <dt>Biggest pot</dt><dd>${fmt(st.biggestPot)}</dd>
+          <dt>Rebuys</dt><dd>${fmt(st.rebuys)}</dd>
+          <dt>Best hand</dt><dd>${best ? best.name : "None yet"}</dd>
+        </dl>
+        <div class="best-cards" role="group" aria-label="${best ? `Best hand cards: ${cardList(best.cards.map(parseCard))}` : ""}"></div>
+      </section>
+      <div class="menu-actions">
+        <button class="btn btn--small" data-m="reset">${confirmReset ? "Tap again to reset" : "Reset stats"}</button>
+        <button class="btn btn--small btn--go" data-m="close">Close</button>
+      </div>
+      <p class="menu-note">Play chips only. No real money.</p>`;
+    if (best) m.querySelector(".best-cards")!.append(...best.cards.map((c) => cardEl(parseCard(c), "sm")));
+    m.querySelectorAll<HTMLButtonElement>("[data-m]").forEach((b) => {
+      b.onclick = () => {
+        switch (b.dataset.m) {
+          case "sound": this.toggleMute(); break;
+          case "size": this.changeSize(Number(b.dataset.n)); break;
+          case "reset":
+            if (!confirmReset) return this.renderMenu(true);
+            this.saved.stats = emptyStats();
+            this.persist();
+            this.renderMenu();
+            break;
+          case "close": m.close(); break;
+        }
+      };
+    });
+  }
+
+  private changeSize(n: number): void {
+    if (n === (this.pendingSize ?? this.state.seats.length)) return;
+    this.saved.players = n;
+    this.persist();
+    if (this.running) this.pendingSize = n;
+    else {
+      this.pendingSize = null;
+      this.setupTable(n, this.state.seats[HUMAN]!.stack);
+      this.message = "";
+      this.render();
+    }
+    this.renderMenu();
   }
 
   // ---------------------------------------------------------------- drawing
@@ -367,6 +589,8 @@ export class TableApp {
       thinking ? "thinking" : "",
     ].filter(Boolean).join(", "));
 
+    const key = this.avatars[p.id] ?? "you";
+    const avatar = `<div class="avatar" style="--c:${avatarBg(key)}" aria-hidden="true">${avatarSVG(key)}</div>`;
     const extras = `
       ${h?.dealer === p.id ? '<span class="dealer" aria-hidden="true">D</span>' : ""}
       ${tag && !isMe ? `<span class="tag" aria-hidden="true">${tag}</span>` : ""}
@@ -377,8 +601,8 @@ export class TableApp {
         <span class="stack">${fmt(stack)}</span>
       </div>`;
     el.innerHTML = isMe
-      ? `<div class="seat-cards"></div><div class="seat-side">${info}</div>${extras}`
-      : `<div class="seat-top"><div class="avatar" style="--c:${this.colors[p.id]}" aria-hidden="true">${p.name[0]}</div><div class="seat-cards"></div></div>${info}${extras}`;
+      ? `<div class="seat-cards"></div><div class="seat-side"><div class="seat-id">${avatar}${info}</div></div>${extras}`
+      : `<div class="seat-top">${avatar}<div class="seat-cards"></div></div>${info}${extras}`;
 
     const cards = el.querySelector<HTMLElement>(".seat-cards")!;
     if (h && p.hole.length && p.status !== "folded") {
@@ -415,6 +639,9 @@ export class TableApp {
       c.querySelector<HTMLButtonElement>("[data-do]")!.onclick = () => {
         if (broke) {
           this.state = rebuy(this.state, HUMAN, START_STACK);
+          this.saved.stats.rebuys++;
+          this.persist();
+          sfx.chips();
           this.say(`You rebuy for ${fmt(START_STACK)}.`);
           this.render();
         } else void this.playHand();
