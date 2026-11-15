@@ -308,15 +308,18 @@ svg { display: block; }
 @media (max-height: 700px) {
   :root {
     --board-w: 48px; --board-h: 66px;
-    --me-w: 56px; --me-h: 78px;
+    --me-w: 52px; --me-h: 72px;
     --opp-w: 26px; --opp-h: 36px;
-    --upper-h: 186px;
+    --upper-h: 172px;
   }
+  .middle { gap: 6px; }
+  /* Label beside the chips instead of above them, to save height. */
+  .pot { flex-direction: row; align-items: flex-end; min-height: 36px; gap: 6px; }
+  .pot-amount { margin-bottom: 2px; }
   .card-rank { font-size: 15px; }
   .card--lg .card-rank { font-size: 19px; }
   .card-pip { right: 4px; bottom: 4px; transform: scale(0.8); transform-origin: bottom right; }
-  .pot { min-height: 56px; }
-  .my-bet { height: 34px; }
+  .my-bet { height: 30px; }
   .name { font-size: 11px; }
   .stack { font-size: 13px; }
   .btn { min-height: 50px; font-size: 15px; }

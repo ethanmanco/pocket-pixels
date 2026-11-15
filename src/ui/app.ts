@@ -136,6 +136,15 @@ export class TableApp {
       mute: q('[data-ui="mute"]'), menuBtn: q('[data-ui="menu"]'), menu: q("dialog"),
     };
     paintTable(this.el.felt);
+    // Seat positions depend on the table's height: redraw when it changes.
+    let lastHeight = 0;
+    new ResizeObserver(() => {
+      const h = this.el.upper.clientHeight;
+      if (h !== lastHeight && this.state) {
+        lastHeight = h;
+        this.render();
+      }
+    }).observe(this.el.upper);
 
     // Browsers only start audio after a tap.
     for (const type of ["pointerdown", "keydown"] as const) document.addEventListener(type, unlockAudio);
@@ -503,6 +512,8 @@ export class TableApp {
     // Seats and bets
     const upper: HTMLElement[] = [];
     const newBets: [HTMLElement, number][] = [];
+    // Slot heights are designed for a 196px top area; squeeze them on short screens.
+    const k = Math.min(1, (this.el.upper.clientHeight || 196) / 196);
     for (const p of s.seats) {
       const seatEl = this.seatEl(p, winners.has(p.id), mark);
       const betEl = this.betEl(p.id);
@@ -512,12 +523,12 @@ export class TableApp {
       } else {
         const slot = this.slots[p.id - 1]!;
         seatEl.style.left = `${slot.x}%`;
-        seatEl.style.top = `${slot.y}px`;
+        seatEl.style.top = `${Math.round(slot.y * k)}px`;
         upper.push(seatEl);
         if (betEl) {
           betEl.classList.add("bet--placed");
           betEl.style.left = `${slot.bx}%`;
-          betEl.style.top = `${slot.by}px`;
+          betEl.style.top = `${Math.round(slot.by * k)}px`;
           upper.push(betEl);
         }
       }
