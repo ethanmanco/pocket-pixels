@@ -20,9 +20,9 @@ import { BotDriver, LocalDriver, type SeatDriver } from "./drivers";
 import { flipIn, slide } from "./motion";
 import { pixelSVG } from "./pixels";
 import { isMuted, setMuted, sfx, unlockAudio } from "./sfx";
-import { type Saved, START_STACK, emptyStats, load, save } from "./storage";
+import { type Saved, START_STACK, defaults, emptyStats, load, save } from "./storage";
 import { paintTable } from "./table";
-import { reducedMotion, sleep } from "./timing";
+import { devSeed, reducedMotion, sleep } from "./timing";
 
 const HUMAN = 0;
 
@@ -71,7 +71,7 @@ const round5 = (n: number) => Math.round(n / 5) * 5;
 
 export class TableApp {
   private state!: GameState;
-  private rng = new Rng(randomSeed());
+  private rng = new Rng(devSeed() ?? randomSeed());
   private drivers: SeatDriver[] = [];
   private local: LocalDriver;
   private avatars: string[] = [];
@@ -100,7 +100,8 @@ export class TableApp {
   };
 
   constructor(root: HTMLElement, private roster: Opponent[]) {
-    this.saved = load();
+    // A demo seed starts from a clean slate so the hand plays out the same way.
+    this.saved = devSeed() === null ? load() : defaults();
     setMuted(this.saved.muted);
 
     this.local = new LocalDriver(() => {
@@ -167,7 +168,7 @@ export class TableApp {
     this.state = createGame({
       players: [{ name: "You", personality: "human" }, ...opponents],
       stack: START_STACK,
-      seed: randomSeed(),
+      seed: devSeed() ?? randomSeed(),
     });
     this.state.seats[HUMAN]!.stack = myChips;
     const n = this.state.seats.length;
@@ -624,6 +625,7 @@ export class TableApp {
         const reveal = !!h.result?.showdown && !!h.result.hands[p.id];
         for (const c of p.hole) cards.append(reveal ? cardEl(c, "sm", mark(c)) : cardBackEl("sm"));
         cards.setAttribute("aria-label", reveal ? `${p.name}'s cards: ${cardList(p.hole)}` : `${p.name}'s cards, face down`);
+        if (reveal) cards.classList.add("is-revealed");
       }
       cards.setAttribute("role", "group");
     }

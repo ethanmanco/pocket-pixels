@@ -11,3 +11,10 @@ export function sleep(ms: number): Promise<void> {
 export function reducedMotion(): boolean {
   return FAST || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
+
+/** `?seed=123` in the URL (dev only) makes the deal and the bots repeatable, for demos. */
+export function devSeed(): number | null {
+  if (!import.meta.env.DEV) return null;
+  const v = new URLSearchParams(location.search).get("seed");
+  return v !== null && /^\d+$/.test(v) ? Number(v) : null;
+}

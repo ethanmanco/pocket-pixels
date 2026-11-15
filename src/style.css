@@ -149,6 +149,8 @@ svg { display: block; }
 .seat-top { display: flex; align-items: center; }
 .seat--opp .seat-cards { display: flex; margin-left: -6px; min-height: var(--opp-h); filter: drop-shadow(2px 2px 0 #0007); }
 .seat--opp .seat-cards .card + .card { margin-left: -12px; }
+/* Shown at showdown: spread out so both ranks can be read. */
+.seat--opp .seat-cards.is-revealed .card + .card { margin-left: 2px; }
 .seat-info { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
 .seat.is-folded .avatar, .seat.is-folded .seat-info, .seat.is-out { opacity: 0.45; }
 
