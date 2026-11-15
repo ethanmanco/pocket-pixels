@@ -92,7 +92,8 @@ export function paintSpace(canvas: HTMLCanvasElement, twinkleLayer: HTMLElement)
     // Ringed planet, lit from the upper left.
     const pr = Math.max(14, Math.round(Math.min(w, h) * 0.16));
     const px = Math.round(w * 0.86);
-    const py = Math.round(h * 0.16);
+    // Below the top bar, in the open space above the side panel on desktop.
+    const py = Math.round(h * 0.34);
     const ringBack: [number, number][] = [];
     const ringFront: [number, number][] = [];
     for (let a = 0; a < Math.PI * 2; a += 0.004) {

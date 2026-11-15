@@ -2,6 +2,9 @@
 // is wrapped in try/catch: private browsing or blocked storage just means
 // nothing is remembered, and the game still works.
 
+import { type Level, isLevel } from "../engine/brain";
+import { DEFAULT_AVATAR, isAvatarKey } from "./avatars";
+
 export const START_STACK = 1000;
 
 export interface BestHand {
@@ -23,8 +26,12 @@ export interface Saved {
   stats: Stats;
   muted: boolean;
   players: number;
-  /** Your name at online tables. */
+  /** Your name at the table. */
   name: string;
+  /** Your avatar (a key from the avatar presets). */
+  avatar: string;
+  /** How well the bots play in solo games. */
+  level: Level;
 }
 
 const KEY = "pocket-pixels:v1";
@@ -34,7 +41,7 @@ export function emptyStats(): Stats {
 }
 
 export function defaults(): Saved {
-  return { chips: START_STACK, stats: emptyStats(), muted: false, players: 5, name: "" };
+  return { chips: START_STACK, stats: emptyStats(), muted: false, players: 5, name: "", avatar: DEFAULT_AVATAR, level: "regular" };
 }
 
 const count = (v: unknown, fallback: number) =>
@@ -53,6 +60,8 @@ export function load(storage: Pick<Storage, "getItem"> | null = safeStorage()): 
       chips: count(v.chips, d.chips),
       muted: v.muted === true,
       name: typeof v.name === "string" ? v.name.replace(/[^A-Za-z0-9 ]/g, "").slice(0, 12) : "",
+      avatar: isAvatarKey(v.avatar) ? v.avatar : DEFAULT_AVATAR,
+      level: isLevel(v.level) ? v.level : "regular",
       players: [2, 3, 4, 5].includes(v.players as number) ? (v.players as number) : d.players,
       stats: {
         handsPlayed: count(s.handsPlayed, 0),

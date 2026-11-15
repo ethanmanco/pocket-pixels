@@ -35,6 +35,8 @@
   --opp-h: 42px;
   --avatar: 42px;
   --upper-h: 196px;
+  /* Screen pixels per chip-art pixel (read by the table code). */
+  --chip-scale: 3;
 
   /* 8-bit stepped corners */
   --step: polygon(
@@ -389,3 +391,94 @@ svg { display: block; }
   .twinkles i { animation: none; opacity: 0.5; }
 }
 .title { text-shadow: 2px 2px 0 #000, 0 0 0 transparent; }
+
+/* ------------------------------------------------------------------ profile + rating */
+.pick-title { margin-top: 12px !important; }
+.avatar-current { color: var(--gold); }
+.avatar-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 6px;
+  max-height: 228px; overflow-y: auto; padding: 4px 2px;
+  overscroll-behavior: contain;
+}
+.avatar-pick {
+  width: 100%; aspect-ratio: 1; display: grid; place-items: center; padding: 0;
+  background: var(--c); border: 0; cursor: pointer; clip-path: var(--step);
+  touch-action: manipulation;
+}
+.avatar-pick .avatar-art { width: 42px; height: 42px; }
+.avatar-pick[aria-checked="true"] { box-shadow: inset 0 0 0 3px var(--gold); }
+.avatar-pick:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.rate {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px;
+  color: var(--ink); text-decoration: none; font-size: 12px; line-height: 1.4;
+  background: #1a1d4a; clip-path: var(--step);
+}
+.rate:hover, .rate:focus-visible { background: #262a66; }
+.rate-star { color: var(--gold); flex: none; }
+.seg .btn:disabled { opacity: 0.7; }
+
+/* ------------------------------------------------------------------ desktop */
+.keys { display: none; }
+
+@media (min-width: 900px) and (min-height: 560px) {
+  :root {
+    /* Scale with the window's height so laptops and big monitors both fit. */
+    --board-w: clamp(70px, 11.5vh, 112px); --board-h: calc(var(--board-w) * 1.39);
+    --me-w: clamp(72px, 10.5vh, 116px); --me-h: calc(var(--me-w) * 1.4);
+    --opp-w: clamp(40px, 5.6vh, 52px); --opp-h: calc(var(--opp-w) * 1.39);
+    --avatar: 56px;
+    --upper-h: clamp(210px, 30vh, 330px);
+    --chip-scale: 4;
+    --gutter: 24px;
+  }
+  #app {
+    max-width: 1500px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+    grid-template-areas:
+      "top top"
+      "felt ."
+      "felt log"
+      "felt controls"
+      "felt keys";
+    column-gap: 24px;
+  }
+  .topbar { grid-area: top; min-height: 56px; }
+  .title { font-size: 26px; }
+  .hand-no { font-size: 15px; }
+  .felt { grid-area: felt; margin: 6px 0 4px; padding: 0 28px 24px; }
+  .log {
+    grid-area: log; font-size: 16px; min-height: 5em; padding: 14px 16px; margin: 0 0 12px;
+    background: #0d1033e6; clip-path: var(--step); text-align: left; place-items: center start;
+  }
+  .controls { grid-area: controls; padding: 14px; background: #0d1033e6; clip-path: var(--step); }
+  .keys { display: block; grid-area: keys; margin: 10px 2px 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .board { gap: 10px; }
+  .card-rank { font-size: 34px; }
+  .card--lg .card-rank { font-size: 36px; }
+  .card--sm .card-rank { font-size: 18px; }
+  .card-corner { top: 9px; left: 9px; gap: 4px; }
+  .card-corner .card-suit { transform: scale(1.4); transform-origin: top center; margin-top: 4px; }
+  .card--sm .card-corner .card-suit { transform: none; }
+  .card-pip { right: 11px; bottom: 11px; transform: scale(1.6); transform-origin: bottom right; }
+  .card--lg .card-pip { transform: scale(1.3); }
+  .name { font-size: 17px; }
+  .stack { font-size: 20px; }
+  .hint { font-size: 15px; max-width: 240px; }
+  .pot-amount { font-size: 22px; padding: 5px 14px 4px; }
+  .bet-amount { font-size: 18px; }
+  .pot { min-height: clamp(80px, 11vh, 120px); gap: 8px; }
+  .my-bet { height: clamp(44px, 6vh, 64px); }
+  .bet { gap: 14px; }
+  .seat--me { padding: 10px 14px; gap: 14px; }
+  .seat--opp .seat-cards .card + .card { margin-left: -16px; }
+  .btn { min-height: 64px; font-size: 18px; }
+  .btn--small { min-height: 48px; font-size: 14px; }
+  .icon-btn { width: 52px; height: 52px; }
+  .menu { width: 460px; }
+}
+
+@media (min-width: 900px) and (min-height: 860px) {
+  :root { --avatar: 70px; }
+}

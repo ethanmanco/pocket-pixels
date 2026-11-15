@@ -244,4 +244,51 @@ describe("room", () => {
     room.join("tok1", "Ann");
     expect(room.s.pending).toBeNull();
   });
+
+  it("the host can pause and resume; nobody can act while paused", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.join(undefined, "Bo");
+    room.start("tok1");
+    t.step();
+    expect(room.pause("tok2", true)).toMatch(/host/);
+    expect(room.pause("tok1", true)).toBeNull();
+    expect(room.roomView().paused).toBe(true);
+    expect(room.s.pending).toBeNull();
+    const toAct = room.s.game.hand!.toAct!;
+    expect(room.act(toAct === 0 ? "tok1" : "tok2", { type: "fold" })).toMatch(/paused/);
+    expect(room.pause("tok1", false)).toBeNull();
+    expect(room.s.pending?.kind).toBe("timeout");
+  });
+
+  it("players can change their name and avatar", () => {
+    const { room } = setup();
+    room.join(undefined, "Ann", "alien-2");
+    expect(room.roomView().seats[0]).toMatchObject({ name: "Ann", avatar: "alien-2" });
+    room.profile("tok1", "Annie", "robot-1");
+    expect(room.roomView().seats[0]).toMatchObject({ name: "Annie", avatar: "robot-1" });
+    expect(room.s.game.seats[0]!.name).toBe("Annie");
+  });
+
+  it("only the host sets the bot level, and insane bots play a full table", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.join(undefined, "Bo");
+    expect(room.setLevel("tok2", "insane")).toMatch(/host/);
+    expect(room.setLevel("tok1", "insane")).toBeNull();
+    expect(room.roomView().level).toBe("insane");
+    for (let i = 0; i < 3; i++) room.addBot("tok1");
+    room.start("tok1");
+    // Ann and Bo time out every turn; the insane bots play on their own.
+    for (let i = 0; i < 300 && room.s.game.handNo < 8; i++) {
+      t.step();
+      room.back("tok1");
+      room.back("tok2");
+    }
+    expect(room.s.game.handNo).toBeGreaterThanOrEqual(8);
+    expect(Object.keys(room.s.notes).length).toBeGreaterThan(0);
+  });
 });
+

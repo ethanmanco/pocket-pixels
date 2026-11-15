@@ -7,11 +7,12 @@
 // seat 0 on screen.
 
 import { type Card, cardCode, parseCard, rankName, sameCard } from "../engine/cards";
+import { LEVELS, LEVEL_NAMES } from "../engine/brain";
 import { evaluateHand } from "../engine/evaluate";
 import type { Action, GameEvent, HandResult, LegalActions } from "../engine/game";
 import { type SeatView, type TableView, viewBetweenHands } from "../engine/view";
 import { type RoomView, isValidCode, randomCode } from "../online/protocol";
-import { avatarBg, avatarSVG } from "./avatars";
+import { AVATAR_CHOICES, avatarBg, avatarName, avatarSVG } from "./avatars";
 import { cardBackEl, cardEl, cardList, emptySlotEl } from "./cards";
 import { chipsSVG, pileColumns, stackColumn } from "./chips";
 import { flipIn, slide } from "./motion";
@@ -46,12 +47,14 @@ const OPPONENT_SLOTS: Record<number, Slot[]> = {
   ],
 };
 
-const CHIP_SCALE = 3;
+/** Screen pixels per chip-art pixel: 3 on phones, 4 on big screens (CSS --chip-scale). */
+const chipScale = () => Number(getComputedStyle(document.documentElement).getPropertyValue("--chip-scale")) || 3;
 
 const ICONS = {
   soundOn: ["....X.....", "...XX..X..", "XXXXX...X.", "XXXXX.X.X.", "XXXXX.X.X.", "XXXXX...X.", "...XX..X..", "....X....."],
   soundOff: ["....X.....", "...XX.....", "XXXXX.X.X.", "XXXXX..X..", "XXXXX.X.X.", "XXXXX.....", "...XX.....", "....X....."],
   menu: ["XXXXXXXXX", "XXXXXXXXX", ".........", "XXXXXXXXX", "XXXXXXXXX", ".........", "XXXXXXXXX", "XXXXXXXXX"],
+  star: ["....X....", "....X....", "...XXX...", "XXXXXXXXX", ".XXXXXXX.", "..XXXXX..", ".XXX.XXX.", ".XX...XX."],
 };
 const icon = (rows: string[]) => pixelSVG(rows, { X: "currentColor" }, 3, "icon");
 
@@ -59,6 +62,7 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 const round5 = (n: number) => Math.round(n / 5) * 5;
 /** Names from the server are already letters, digits and spaces; escape anyway. */
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const REPO_URL = "https://github.com/ethanmanco/pocket-pixels";
 const homeUrl = () => `${location.origin}${location.pathname}`;
 
 function emptyView(): TableView {
@@ -121,6 +125,7 @@ export class TableApp {
       <p class="log" aria-hidden="true"></p>
       <p class="sr-only" role="status" aria-live="polite"></p>
       <footer class="controls" aria-label="Your actions"></footer>
+      <p class="keys" aria-hidden="true">Keys: F fold, C check or call, R raise, A all in, N next hand</p>
       <dialog class="menu" aria-labelledby="menu-title"></dialog>`;
     const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
     this.el = {
@@ -151,6 +156,7 @@ export class TableApp {
     // Browsers only start audio after a tap.
     for (const type of ["pointerdown", "keydown"] as const) document.addEventListener(type, unlockAudio);
     this.el.mute.onclick = () => this.toggleMute();
+    document.addEventListener("keydown", (e) => this.onKey(e));
     this.el.menuBtn.onclick = () => this.openMenu();
     this.renderMute();
     // The turn timer counts down on screen.
@@ -181,7 +187,7 @@ export class TableApp {
 
   private connect(): void {
     if (this.mode.kind !== "online") return;
-    const src = new OnlineSource(this.mode.code, this.saved.name, {
+    const src = new OnlineSource(this.mode.code, this.saved.name, this.saved.avatar, {
       status: (text) => {
         this.say(text);
         this.render();
@@ -192,6 +198,27 @@ export class TableApp {
     });
     this.source = src;
     src.start((u) => this.enqueue(u));
+  }
+
+  /** Desktop shortcuts: F fold, C check or call, R raise or bet, A all in, N next hand. */
+  private onKey(e: KeyboardEvent): void {
+    if (e.ctrlKey || e.metaKey || e.altKey || this.el.menu.open) return;
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+    const click = (sel: string) => {
+      const b = this.el.controls.querySelector<HTMLButtonElement>(sel);
+      if (!b || b.disabled) return false;
+      b.click();
+      e.preventDefault();
+      return true;
+    };
+    switch (e.key.toLowerCase()) {
+      case "f": click('[data-act="fold"]'); break;
+      case "c": if (!click('[data-act="check"]')) click('[data-act="call"]'); break;
+      case "r": click('[data-act="raise"]'); break;
+      case "a": click('[data-preset="all"]'); break;
+      case "n": click('[data-do="next"]') || click('[data-do="rebuy"]'); break;
+    }
   }
 
   // ---------------------------------------------------------------- saving
@@ -550,7 +577,8 @@ export class TableApp {
           </li>`).join("")}
         </ul>
         <button class="btn btn--small" data-m="addbot">Add a bot</button>
-        <p class="menu-note">You are the host: you can add or remove bots.</p>` : ""}
+        <button class="btn btn--small" data-m="pause">${this.room?.paused ? "Resume game" : "Pause game"}</button>
+        <p class="menu-note">You are the host: you can pause, and add or remove bots.</p>` : ""}
       </section>`
       : `
       <section class="menu-section">
@@ -571,6 +599,8 @@ export class TableApp {
         <h3>Sound</h3>
         <button class="btn btn--small toggle" data-m="sound" aria-pressed="${!isMuted()}">${isMuted() ? "Off" : "On"}</button>
       </section>
+      ${this.profileSection()}
+      ${this.levelSection()}
       ${friends}
       ${local ? `
       <section class="menu-section">
@@ -596,7 +626,12 @@ export class TableApp {
         <button class="btn btn--small" data-m="reset">${confirmReset ? "Tap again to reset" : "Reset stats"}</button>
         <button class="btn btn--small btn--go" data-m="close">Close</button>
       </div>
+      <a class="rate" href="${REPO_URL}" target="_blank" rel="noopener">
+        <span class="rate-star" aria-hidden="true">${icon(ICONS.star)}</span>
+        <span>Enjoying it? Rate it with a star on GitHub</span>
+      </a>
       <p class="menu-note">Play chips only. No real money.</p>`;
+    this.wireProfile();
     if (best) m.querySelector(".best-cards")!.append(...best.cards.map((c) => cardEl(parseCard(c), "sm")));
 
     m.querySelector<HTMLFormElement>('form[data-m="join"]')?.addEventListener("submit", (e) => {
@@ -634,7 +669,70 @@ export class TableApp {
             this.renderMenu();
             break;
           case "close": m.close(); break;
+          case "pause": online?.pause(!this.room?.paused); break;
+          case "level": {
+            const level = b.dataset.level as (typeof LEVELS)[number];
+            if (online) online.setLevel(level);
+            else {
+              this.saved.level = level;
+              this.persist();
+            }
+            this.renderMenu();
+            break;
+          }
         }
+      };
+    });
+  }
+
+  /** Name and avatar picker. */
+  private profileSection(): string {
+    const choices = AVATAR_CHOICES.map(
+      (a) => `<button class="avatar-pick" role="radio" aria-checked="${a.key === this.saved.avatar}" aria-label="${esc(a.name)}" data-avatar="${a.key}" style="--c:${avatarBg(a.key)}">${avatarSVG(a.key)}</button>`,
+    ).join("");
+    return `
+      <section class="menu-section">
+        <h3><label for="profile-name">Your name</label></h3>
+        <input id="profile-name" class="text-input" maxlength="12" autocomplete="nickname" value="${esc(this.saved.name)}" placeholder="You">
+        <h3 class="pick-title" id="avatar-label">Avatar: <span class="avatar-current">${esc(avatarName(this.saved.avatar))}</span></h3>
+        <div class="avatar-grid" role="radiogroup" aria-labelledby="avatar-label">${choices}</div>
+      </section>`;
+  }
+
+  /** Bot skill: solo games use your setting; online, the host sets it for the table. */
+  private levelSection(): string {
+    const online = this.online;
+    const current = online ? this.room?.level ?? "regular" : this.saved.level;
+    const canSet = !online || !!this.room?.seats[HUMAN]?.host;
+    return `
+      <section class="menu-section">
+        <h3 id="level-label">Bots</h3>
+        <div class="seg" role="radiogroup" aria-labelledby="level-label">
+          ${LEVELS.map((l) => `<button class="btn btn--small" role="radio" aria-checked="${l === current}" data-m="level" data-level="${l}" ${canSet ? "" : "disabled"}>${LEVEL_NAMES[l]}</button>`).join("")}
+        </div>
+        <p class="menu-note">${canSet ? "Changes how the bots play, never the cards you are dealt." : "The host picks how the bots play."}</p>
+      </section>`;
+  }
+
+  private wireProfile(): void {
+    const m = this.el.menu;
+    const input = m.querySelector<HTMLInputElement>("#profile-name");
+    const push = () => {
+      this.persist();
+      this.local?.updateProfile();
+      this.online?.profile(this.saved.name || "Player", this.saved.avatar);
+    };
+    input?.addEventListener("change", () => {
+      this.saved.name = input.value.replace(/[^A-Za-z0-9 ]/g, "").trim().slice(0, 12);
+      input.value = this.saved.name;
+      push();
+    });
+    m.querySelectorAll<HTMLButtonElement>("[data-avatar]").forEach((b) => {
+      b.onclick = () => {
+        this.saved.avatar = b.dataset.avatar!;
+        m.querySelectorAll("[data-avatar]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+        m.querySelector(".avatar-current")!.textContent = avatarName(this.saved.avatar);
+        push();
       };
     });
   }
@@ -656,8 +754,9 @@ export class TableApp {
 
     // Seats and bets
     const slots = OPPONENT_SLOTS[Math.max(1, v.seats.length - 1)] ?? OPPONENT_SLOTS[4]!;
-    // Slot heights are designed for a 196px top area; squeeze them on short screens.
-    const k = Math.min(1, (this.el.upper.clientHeight || 196) / 196);
+    // Slot heights are designed for a 196px top area: squeeze them on short
+    // screens and spread them out on big ones.
+    const k = Math.min(1.7, (this.el.upper.clientHeight || 196) / 196);
     const upper: HTMLElement[] = [];
     const newBets: [HTMLElement, number][] = [];
     this.el.me.replaceChildren();
@@ -683,6 +782,11 @@ export class TableApp {
       if (betEl && (this.bets[p.id] ?? 0) > (this.drawnBets[p.id] ?? 0)) newBets.push([betEl, p.id]);
     }
     this.el.upper.replaceChildren(...upper);
+    // Bets sit just below their player's seat, whatever size the seats are drawn at.
+    for (const betEl of this.el.upper.querySelectorAll<HTMLElement>(".bet--placed")) {
+      const seatEl = this.seatNode(Number(betEl.dataset.seat));
+      if (seatEl) betEl.style.top = `${seatEl.offsetTop + seatEl.offsetHeight + betEl.offsetHeight / 2 + 4}px`;
+    }
     this.drawnBets = [...this.bets];
     if (!reducedMotion()) {
       for (const [betEl, seat] of newBets) {
@@ -707,7 +811,7 @@ export class TableApp {
     const finished = h?.street === "complete" && this.pendingWin === null;
     const pot = h && !finished ? committed - pending : 0;
     this.el.pot.innerHTML = pot > 0
-      ? `<span class="pot-amount">Pot ${fmt(pot)}</span>${chipsSVG(pileColumns(pot, 6, 6), CHIP_SCALE)}`
+      ? `<span class="pot-amount">Pot ${fmt(pot)}</span>${chipsSVG(pileColumns(pot, 6, 6), chipScale())}`
       : "";
     this.el.pot.setAttribute("aria-label", pot > 0 ? `Pot ${fmt(pot)}` : "");
 
@@ -720,7 +824,7 @@ export class TableApp {
     const el = document.createElement("div");
     el.className = "bet";
     el.dataset.seat = String(seat);
-    el.innerHTML = `${chipsSVG([stackColumn(amount, 4)], CHIP_SCALE)}<span class="bet-amount">${fmt(amount)}</span>`;
+    el.innerHTML = `${chipsSVG([stackColumn(amount, 4)], chipScale())}<span class="bet-amount">${fmt(amount)}</span>`;
     return el;
   }
 
@@ -751,7 +855,7 @@ export class TableApp {
     const tag = away ? "Away" : p.status === "allin" ? "All in" : p.status === "folded" ? "Fold"
       : p.lastAction ? tagText(p.lastAction.kind) : "";
     const thinking = toAct && !isMe && !this.animating;
-    const name = isMe ? "You" : p.name;
+    const name = isMe ? this.saved.name || "You" : p.name;
     el.setAttribute("role", "group");
     el.setAttribute("aria-label", [
       name,
@@ -847,6 +951,7 @@ export class TableApp {
             case "addbot": online?.addBot(); break;
             case "invite": void this.invite(); break;
             case "back": online?.back(); break;
+            case "resume": online?.pause(false); break;
             case "solo": location.href = homeUrl(); break;
           }
         };
@@ -856,6 +961,13 @@ export class TableApp {
     // Online, before the table has answered.
     if (online && !this.joined) {
       shell("", "", '<button class="btn btn--small" data-do="solo">Play solo instead</button>');
+      return wire();
+    }
+
+    // The host paused the game.
+    if (online && room?.paused) {
+      if (room.seats[HUMAN]?.host) shell("", "You paused the game.", '<button class="btn btn--go" data-do="resume">Resume</button>');
+      else shell("", "The host paused the game.", disabledRow);
       return wire();
     }
 

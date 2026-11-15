@@ -1,6 +1,7 @@
 // Screenshot the game at a given screen size, for checking layouts.
 //   node scripts/screenshot.mjs <url> <out.png> [width] [height] [moves]
-// `moves` clicks Check or Call that many times first (use a ?fast&seed= dev URL).
+// `moves` clicks Check or Call that many times first (use a ?fast&seed= dev URL),
+// or "menu" opens the menu.
 import puppeteer from "puppeteer-core";
 
 const [url, out, w = "375", h = "812", moves = "0"] = process.argv.slice(2);
@@ -14,7 +15,11 @@ await page.setViewport({ width: Number(w), height: Number(h), deviceScaleFactor:
 page.on("pageerror", (e) => console.log("pageerror:", e.message));
 await page.goto(url, { waitUntil: "networkidle0" });
 await page.evaluate(() => document.fonts.ready);
-for (let i = 0; i < Number(moves); i++) {
+if (moves === "menu") {
+  await page.click('[data-ui="menu"]');
+  await new Promise((r) => setTimeout(r, 300));
+}
+for (let i = 0; i < (Number(moves) || 0); i++) {
   await page.waitForSelector('.controls [data-act="check"]:not(:disabled), .controls [data-act="call"]:not(:disabled)', { timeout: 10_000 });
   await page.evaluate(() => {
     const b = document.querySelector('.controls [data-act="check"]:not(:disabled)') ?? document.querySelector('.controls [data-act="call"]:not(:disabled)');

@@ -3,7 +3,8 @@
 //   - LocalSource: solo play. Runs the engine and the bots on this phone.
 //   - OnlineSource: a table on the server, shared with friends.
 
-import { type BotPersonality, STYLES } from "../engine/bot";
+import type { BotPersonality } from "../engine/bot";
+import { type Level, type Notes, decideAtLevel, updateNotes } from "../engine/brain";
 import {
   type Action, type GameEvent, type GameState, applyAction, createGame, rebuy, startHand, viewFor,
 } from "../engine/game";
@@ -62,6 +63,8 @@ export class LocalSource implements TableSource {
   private waiting: ((a: Action) => void) | null = null;
   private listener: Listener = async () => {};
   private pendingSize: number | null = null;
+  /** What the bots have learned about each seat from public betting. */
+  private notes: Notes = {};
 
   constructor(
     private roster: Opponent[],
@@ -79,13 +82,19 @@ export class LocalSource implements TableSource {
     const names = TABLE_PICKS[players] ?? TABLE_PICKS[5]!;
     const opponents = this.roster.filter((o) => names.includes(o.name));
     this.state = createGame({
-      players: [{ name: "You", personality: "human" }, ...opponents],
+      players: [{ name: this.saved.name || "You", personality: "human" }, ...opponents],
       stack: START_STACK,
       seed: devSeed() ?? randomSeed(),
     });
     this.state.seats[0]!.stack = myChips;
-    this.avatars = ["you", ...opponents.map((o) => o.avatar)];
-    this.bots = [null, ...opponents.map((o) => new BotDriver(STYLES[o.personality], this.rng, () => 450 + this.rng.int(450)))];
+    this.avatars = [this.saved.avatar, ...opponents.map((o) => o.avatar)];
+    this.notes = {};
+    this.bots = [
+      null,
+      ...opponents.map(
+        (o) => new BotDriver((v) => decideAtLevel(v, o.personality, this.saved.level, this.rng, this.notes), () => 450 + this.rng.int(450)),
+      ),
+    ];
   }
 
   private emit(events: GameEvent[]): Promise<void> {
@@ -134,6 +143,10 @@ export class LocalSource implements TableSource {
       }
       this.state = step.state;
       this.saveChips();
+      if (step.events.some((e) => e.type === "handEnd")) {
+        const dealt = this.state.seats.filter((p) => p.hole.length).map((p) => p.id);
+        updateNotes(this.notes, this.state.hand!.history, dealt);
+      }
       await this.emit(step.events);
     }
     this.busy = false;
@@ -150,6 +163,13 @@ export class LocalSource implements TableSource {
     if (this.busy || this.state.seats[0]!.stack > 0) return;
     this.state = rebuy(this.state, 0, START_STACK);
     this.saveChips();
+    void this.emit([]);
+  }
+
+  /** Your name or avatar changed in the menu. */
+  updateProfile(): void {
+    this.state.seats[0]!.name = this.saved.name || "You";
+    this.avatars[0] = this.saved.avatar;
     void this.emit([]);
   }
 
@@ -211,6 +231,7 @@ export class OnlineSource implements TableSource {
   constructor(
     readonly code: string,
     private name: string,
+    private avatar: string,
     private cb: OnlineCallbacks,
   ) {}
 
@@ -238,7 +259,7 @@ export class OnlineSource implements TableSource {
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;
-      this.send({ t: "join", name: this.name, token: loadTokens()[this.code] });
+      this.send({ t: "join", name: this.name, token: loadTokens()[this.code], avatar: this.avatar });
     };
     ws.onmessage = (e) => {
       let msg: ServerMsg;
@@ -302,6 +323,14 @@ export class OnlineSource implements TableSource {
   addBot(): void { this.send({ t: "addBot" }); }
   removeBot(screenSeat: number): void { this.send({ t: "removeBot", seat: this.realSeat(screenSeat) }); }
   back(): void { this.send({ t: "back" }); }
+  pause(paused: boolean): void { this.send({ t: "pause", paused }); }
+  setLevel(level: Level): void { this.send({ t: "level", level }); }
+
+  profile(name: string, avatar: string): void {
+    this.name = name;
+    this.avatar = avatar;
+    this.send({ t: "profile", name, avatar });
+  }
 
   leave(): void {
     this.closedOnPurpose = true;
