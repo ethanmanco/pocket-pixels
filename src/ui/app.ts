@@ -771,7 +771,12 @@ export class TableApp {
       : `<div class="seat-top">${avatar}<div class="seat-cards"></div></div>${info}${extras}`;
 
     const cards = el.querySelector<HTMLElement>(".seat-cards")!;
-    if (h && p.cardCount && p.status !== "folded") {
+    if (isMe && h && p.hole.length && p.status === "folded") {
+      // Your folded hand stays in view, faintly.
+      for (const c of p.hole) cards.append(cardEl(c, "lg", "is-folded-card"));
+      cards.setAttribute("aria-label", `Your folded cards: ${cardList(p.hole)}`);
+      cards.setAttribute("role", "group");
+    } else if (h && p.cardCount && p.status !== "folded") {
       if (isMe) {
         for (const c of p.hole) cards.append(cardEl(c, "lg", mark(c)));
         cards.setAttribute("aria-label", `Your cards: ${cardList(p.hole)}`);

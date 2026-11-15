@@ -1,5 +1,14 @@
 /* Pocket Pixels: phone-first 8-bit poker table. */
 
+/* Digits come from Press Start 2P (clearer 4 than Silkscreen), letters from Silkscreen. */
+@font-face {
+  font-family: "Pixel Digits";
+  src: url("../node_modules/@fontsource/press-start-2p/files/press-start-2p-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+30-39;
+  size-adjust: 72%;
+  font-display: swap;
+}
+
 :root {
   --bg: #0d1b2a;
   --ink: #f4f1de;
@@ -14,7 +23,7 @@
   --raise: #c47f14;
   --go: #2f8c4e;
   --gutter: 16px;
-  --font: "Silkscreen", ui-monospace, Menlo, Consolas, monospace;
+  --font: "Pixel Digits", "Silkscreen", ui-monospace, Menlo, Consolas, monospace;
 
   /* Sizes */
   --board-w: 59px;
@@ -215,8 +224,8 @@ svg { display: block; }
 .card--sm .card-rank { font-size: 12px; }
 .suit-s { color: #1a1a2e; }
 .suit-h { color: #d62839; }
-.suit-d { color: #1d5fd1; }
-.suit-c { color: #1f8a3b; }
+.suit-d { color: #d62839; }
+.suit-c { color: #1a1a2e; }
 
 .card--back::before {
   background:
@@ -236,6 +245,8 @@ svg { display: block; }
 .card.is-win { background: var(--gold); transform: translateY(-4px); }
 .card.is-win::before { inset: 3px; }
 .card.is-dim { filter: brightness(0.55); }
+/* Your own cards after you fold: still there, but faint. */
+.card.is-folded-card { opacity: 0.38; filter: grayscale(0.6); }
 
 /* ------------------------------------------------------------------ log + controls */
 .log {

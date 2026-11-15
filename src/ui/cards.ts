@@ -1,5 +1,6 @@
-// Pixel-art cards. Each suit has its own pixel shape and its own color
-// (a four-color deck), so suits never depend on color alone.
+// Pixel-art cards. Classic two colors (spades and clubs black, hearts and
+// diamonds red), and each suit has its own pixel shape, so suits never depend
+// on color alone.
 
 import { type Card, type Suit, cardLabel, rankFace } from "../engine/cards";
 import { pixelSVG } from "./pixels";
@@ -55,8 +56,8 @@ const SUIT_SHAPES: Record<Suit, string[]> = {
 export const SUIT_COLORS: Record<Suit, string> = {
   s: "#1a1a2e",
   h: "#d62839",
-  d: "#1d5fd1",
-  c: "#1f8a3b",
+  d: "#d62839",
+  c: "#1a1a2e",
 };
 
 export function suitSVG(suit: Suit, scale: number, className = ""): string {
