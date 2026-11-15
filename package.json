@@ -14,7 +14,8 @@
     "server": "wrangler dev -c server/wrangler.jsonc --ip 0.0.0.0 --port 8787",
     "deploy:server": "wrangler deploy -c server/wrangler.jsonc",
     "typecheck:server": "tsc -p server/tsconfig.json",
-    "server:local": "vite build --base / --outDir dist-local --mode localtest && wrangler dev -c server/wrangler.local.jsonc --ip 0.0.0.0 --port 8787"
+    "server:local": "vite build --base / --outDir dist-local --mode localtest && wrangler dev -c server/wrangler.local.jsonc --ip 0.0.0.0 --port 8787",
+    "check:online": "node scripts/online-check.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261031.1",
