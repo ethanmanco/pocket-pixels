@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCards } from "../src/engine/cards";
-import { STYLES, decide, estimateEquity } from "../src/engine/bot";
+import { type BotPersonality, STYLES, decide, estimateEquity } from "../src/engine/bot";
 import { type GameState, applyAction, createGame, legalActions, startHand, viewFor } from "../src/engine/game";
 import { Rng } from "../src/engine/rng";
 
@@ -25,7 +25,7 @@ describe("estimateEquity", () => {
   });
 });
 
-function botGame(personality: "cautious" | "loose" | "aggressive", players = 2): GameState {
+function botGame(personality: BotPersonality, players = 2): GameState {
   return createGame({
     players: Array.from({ length: players }, (_, i) => ({ name: `P${i}`, personality })),
     seed: 3,
@@ -33,9 +33,9 @@ function botGame(personality: "cautious" | "loose" | "aggressive", players = 2):
 }
 
 /** Play bot-vs-bot hands and count raise / call / fold choices. */
-function sampleStyle(personality: "cautious" | "loose" | "aggressive", hands: number) {
+function sampleStyle(personality: BotPersonality, hands: number, players = 3) {
   const rng = new Rng(11);
-  let g = botGame(personality, 3);
+  let g = botGame(personality, players);
   const counts = { raise: 0, call: 0, fold: 0, check: 0, preflopPlays: 0, preflopSpots: 0 };
   for (let i = 0; i < hands; i++) {
     for (const p of g.seats) if (p.stack < 100) g = { ...g, seats: g.seats.map((s) => (s.id === p.id ? { ...s, stack: 1000 } : s)) };
@@ -63,7 +63,7 @@ function sampleStyle(personality: "cautious" | "loose" | "aggressive", hands: nu
 
 describe("decide", () => {
   it("always picks a legal action, for every personality", () => {
-    for (const p of ["cautious", "loose", "aggressive"] as const) sampleStyle(p, 40);
+    for (const p of ["cautious", "loose", "aggressive", "steady"] as const) sampleStyle(p, 40);
   });
 
   it("personalities play differently", () => {
@@ -96,5 +96,11 @@ describe("decide", () => {
       const a = decide(viewFor(state, 0), STYLES.cautious, new Rng(i), 200);
       expect(a.type).not.toBe("fold");
     }
+  });
+});
+
+describe("full table", () => {
+  it("bots play legal actions at a five-player table", () => {
+    for (const p of ["cautious", "loose", "aggressive", "steady"] as const) sampleStyle(p, 20, 5);
   });
 });

@@ -7,7 +7,7 @@ import { type HandRank, describeWin, evaluateHand } from "./evaluate";
 import { type PotAward, awardPots, buildPots } from "./pots";
 import { Rng } from "./rng";
 
-export type Personality = "human" | "cautious" | "loose" | "aggressive";
+export type Personality = "human" | "cautious" | "loose" | "aggressive" | "steady";
 export type SeatStatus = "active" | "folded" | "allin" | "out";
 export type ActionKind = "fold" | "check" | "call" | "bet" | "raise";
 export type Street = "preflop" | "flop" | "turn" | "river" | "complete";

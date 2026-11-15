@@ -6,7 +6,7 @@ import {
 } from "../src/engine/game";
 import { Rng } from "../src/engine/rng";
 
-const NAMES = ["You", "Pebble", "Juniper", "Blaze"];
+const NAMES = ["You", "Pebble", "Juniper", "Blaze", "Rook", "Extra"];
 
 function newGame(players: number, stacks?: number[]): GameState {
   let g = createGame({
@@ -262,12 +262,12 @@ describe("players only see what they should", () => {
 });
 
 describe("random play never breaks the rules", () => {
-  it("keeps every chip over 400 random hands", () => {
+  it("keeps every chip over 500 random hands at 2 to 6 players", () => {
     const rng = new Rng(99);
-    for (const players of [2, 3, 4]) {
+    for (const players of [2, 3, 4, 5, 6]) {
       let g = newGame(players);
       const start = total(g);
-      for (let hand = 0; hand < 400 / 3; hand++) {
+      for (let hand = 0; hand < 100; hand++) {
         for (const p of g.seats) if (p.stack === 0) g = rebuy(g, p.id, 1000);
         const startTotal = total(g);
         g = startHand(g).state;
@@ -293,5 +293,32 @@ describe("random play never breaks the rules", () => {
       }
       expect(start).toBe(players * 1000);
     }
+  });
+});
+
+describe("five players", () => {
+  it("posts blinds left of the button and starts with the player after the big blind", () => {
+    let { state } = startHand(newGame(5));
+    expect(state.hand).toMatchObject({ dealer: 0, sbSeat: 1, bbSeat: 2, toAct: 3 });
+    state = play(state, C, C, C, C, X).state;
+    expect(state.hand!.street).toBe("flop");
+    expect(state.hand!.toAct).toBe(1);
+  });
+
+  it("splits side pots correctly with two all-ins and two callers", () => {
+    let { state } = startHand(newGame(5, [1000, 1000, 1000, 150, 400]), {
+      // Seat 3 (150) has the best hand, seat 4 (400) second, seat 0 third, seat 1 worst.
+      deck: deckOf("Qs Qh 2c 3d Kc 4d As Ah Ks Kh", "Ad Kd 8c 7h 2s"),
+    });
+    // Seat 3 shoves 150, seat 4 shoves 400, button calls 400, small blind calls, big blind folds.
+    state = play(state, R(150), R(400), C, C, F).state;
+    // Two players still have chips, so they check it down.
+    state = play(state, X, X, X, X, X, X).state;
+    const r = state.hand!.result!;
+    expect(r.pots.map((p) => [p.amount, p.winners])).toEqual([
+      [150 * 4 + 10, [3]],
+      [250 * 3, [4]],
+    ]);
+    expect(stacks(state)).toEqual([600, 600, 990, 610, 750]);
   });
 });

@@ -38,7 +38,11 @@ export const STYLES: Record<Exclude<Personality, "human">, BotStyle> = {
   loose: { looseness: 0.15, raiseAt: 1.6, aggression: 0.35, bluff: 0.04, callPickiness: 0.75, sizing: 0.5 },
   // Raises often, bets big, bluffs too much.
   aggressive: { looseness: 0.05, raiseAt: 1.15, aggression: 0.8, bluff: 0.14, callPickiness: 1.0, sizing: 0.85 },
+  // Middle of the road: sensible hands, sensible bets, the odd bluff.
+  steady: { looseness: 0, raiseAt: 1.35, aggression: 0.6, bluff: 0.06, callPickiness: 1.05, sizing: 0.65 },
 };
+
+export type BotPersonality = keyof typeof STYLES;
 
 /** Chance of winning (ties count as a share) against the players still in. */
 export function estimateEquity(hole: Card[], board: Card[], opponents: number, iterations: number, rng: Rng): number {
