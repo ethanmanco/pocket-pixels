@@ -17,7 +17,7 @@ import puppeteer from "puppeteer-core";
 
 const { GIFEncoder, applyPalette, quantize } = gifenc;
 
-const BASE = process.argv[2] ?? "http://localhost:5183/";
+const BASE = process.argv[2] ?? "http://localhost:5173/";
 const CHROME = process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const VIEWPORT = { width: 375, height: 700, deviceScaleFactor: 1, isMobile: true, hasTouch: true };
 const GOOD = /with (two pair|three of a kind|straight|flush|full house|four of a kind|royal)/i;
