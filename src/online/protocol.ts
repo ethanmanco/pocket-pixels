@@ -1,5 +1,6 @@
 // Messages between a phone and the table server.
 
+import { type Level, isLevel } from "../engine/brain";
 import type { Action, GameEvent } from "../engine/game";
 import type { TableView } from "../engine/view";
 
@@ -9,7 +10,10 @@ export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export const CODE_LENGTH = 5;
 
 export type ClientMsg =
-  | { t: "join"; name: string; token?: string }
+  | { t: "join"; name: string; token?: string; avatar?: string }
+  | { t: "profile"; name: string; avatar?: string }
+  | { t: "pause"; paused: boolean }
+  | { t: "level"; level: Level }
   | { t: "act"; action: Action }
   | { t: "start" }
   | { t: "addBot" }
@@ -31,6 +35,10 @@ export interface RoomView {
   code: string;
   seats: RoomSeatView[];
   started: boolean;
+  /** The host paused the game: nobody acts and no timers run. */
+  paused: boolean;
+  /** How well the bots play. */
+  level: Level;
   /** Milliseconds left for the player whose turn it is, when a person is acting. */
   turnMsLeft: number | null;
   turnMs: number;
@@ -58,6 +66,11 @@ export function cleanName(raw: unknown): string {
   return s || "Player";
 }
 
+/** Avatar keys look like "astronaut-2"; the screen falls back for unknown ones. */
+export function cleanAvatar(raw: unknown): string | undefined {
+  return typeof raw === "string" && /^[a-z0-9-]{1,24}$/.test(raw) ? raw : undefined;
+}
+
 /** Parse and check a message from a phone; anything odd becomes null. */
 export function parseClientMsg(raw: string): ClientMsg | null {
   let m: unknown;
@@ -70,7 +83,18 @@ export function parseClientMsg(raw: string): ClientMsg | null {
   const o = m as Record<string, unknown>;
   switch (o.t) {
     case "join":
-      return { t: "join", name: cleanName(o.name), token: typeof o.token === "string" && o.token.length <= 64 ? o.token : undefined };
+      return {
+        t: "join",
+        name: cleanName(o.name),
+        token: typeof o.token === "string" && o.token.length <= 64 ? o.token : undefined,
+        avatar: cleanAvatar(o.avatar),
+      };
+    case "profile":
+      return { t: "profile", name: cleanName(o.name), avatar: cleanAvatar(o.avatar) };
+    case "pause":
+      return typeof o.paused === "boolean" ? { t: "pause", paused: o.paused } : null;
+    case "level":
+      return isLevel(o.level) ? { t: "level", level: o.level } : null;
     case "act": {
       const a = o.action as Record<string, unknown> | undefined;
       if (!a || typeof a !== "object") return null;

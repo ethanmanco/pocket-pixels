@@ -22,7 +22,7 @@ const CHIP = [
   "....KKKKKKKK....",
 ];
 const PALETTE = { K: "#111111", r: "#d62839", w: "#f4f1de", c: "#fbf7ec" };
-const BG = "#0d1b2a";
+const BG = "#05050f";
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), 255];
 

@@ -2,7 +2,8 @@
 // logic with no networking, so it can be tested on its own; the Cloudflare
 // Durable Object in server/ wraps it with WebSockets, storage and alarms.
 
-import { type BotPersonality, STYLES, decide } from "../engine/bot";
+import type { BotPersonality } from "../engine/bot";
+import { type Level, type Notes, decideAtLevel, updateNotes } from "../engine/brain";
 import {
   type Action, type GameEvent, type GameState, applyAction, createGame, legalActions, startHand, viewFor,
 } from "../engine/game";
@@ -53,6 +54,12 @@ export interface RoomState {
   game: GameState;
   pending: Pending | null;
   rngState: number;
+  /** The host paused the game. */
+  paused: boolean;
+  /** How well the bots play. */
+  level: Level;
+  /** What the bots have learned about each seat from public betting. */
+  notes: Notes;
 }
 
 export function newRoom(code: string, seed: number): RoomState {
@@ -68,6 +75,9 @@ export function newRoom(code: string, seed: number): RoomState {
     }),
     pending: null,
     rngState: seed ^ 0x5eed,
+    paused: false,
+    level: "regular",
+    notes: {},
   };
 }
 
@@ -93,7 +103,12 @@ export class Room {
     public s: RoomState,
     private now: () => number,
     private makeToken: () => string,
-  ) {}
+  ) {
+    // Tables saved before these settings existed.
+    s.paused ??= false;
+    s.level ??= "regular";
+    s.notes ??= {};
+  }
 
   // ------------------------------------------------------------------ helpers
 
@@ -124,6 +139,10 @@ export class Room {
     const r = applyAction(this.s.game, seat, action);
     this.s.game = r.state;
     this.events.push(...r.events);
+    if (r.events.some((e) => e.type === "handEnd")) {
+      const dealt = this.s.game.seats.filter((p) => p.hole.length).map((p) => p.id);
+      updateNotes(this.s.notes, this.s.game.hand!.history, dealt);
+    }
   }
 
   private setEngineSeat(seat: number, name: string, personality: RoomSeat["personality"], stack: number): void {
@@ -136,6 +155,7 @@ export class Room {
   private free(seat: number): void {
     const p = this.s.seats[seat];
     this.s.seats[seat] = null;
+    delete this.s.notes[seat];
     this.setEngineSeat(seat, "", null, 0);
     if (p?.token && p.token === this.s.hostToken) {
       this.s.hostToken = this.s.seats.find((x) => x?.kind === "human" && !x.leaving)?.token ?? null;
@@ -149,10 +169,13 @@ export class Room {
   // ------------------------------------------------------------------ people
 
   /** Take a seat, or get your old seat back with your token. */
-  join(token: string | undefined, name: string): { seat: number; token: string } | { error: string } {
+  join(token: string | undefined, name: string, avatar?: string): { seat: number; token: string } | { error: string } {
     const existing = this.seatOf(token);
     if (existing >= 0) {
       const p = this.s.seats[existing]!;
+      p.name = name;
+      if (avatar) p.avatar = avatar;
+      this.s.game.seats[existing]!.name = name;
       p.connected = true;
       p.away = false;
       p.timeouts = 0;
@@ -164,7 +187,7 @@ export class Room {
     if (seat < 0) return { error: "This table is full." };
     const t = this.makeToken();
     this.s.seats[seat] = {
-      kind: "human", name, avatar: `p${seat}`, token: t, personality: null,
+      kind: "human", name, avatar: avatar ?? `cap-${(seat % 4) + 1}`, token: t, personality: null,
       connected: true, timeouts: 0, away: false, leaving: false,
     };
     // A newcomer mid-hand sits out until the next deal (their engine seat is "out").
@@ -172,6 +195,16 @@ export class Room {
     if (!this.s.hostToken) this.s.hostToken = t;
     this.schedule();
     return { seat, token: t };
+  }
+
+  /** Change your name or avatar. */
+  profile(token: string, name: string, avatar?: string): void {
+    const seat = this.seatOf(token);
+    if (seat < 0) return;
+    const p = this.s.seats[seat]!;
+    p.name = name;
+    if (avatar) p.avatar = avatar;
+    this.s.game.seats[seat]!.name = name;
   }
 
   disconnect(token: string): void {
@@ -245,6 +278,19 @@ export class Room {
     return null;
   }
 
+  pause(token: string, paused: boolean): string | null {
+    if (!this.isHost(token)) return "Only the host can pause the game.";
+    this.s.paused = paused;
+    this.schedule();
+    return null;
+  }
+
+  setLevel(token: string, level: Level): string | null {
+    if (!this.isHost(token)) return "Only the host can change the bots.";
+    this.s.level = level;
+    return null;
+  }
+
   start(token: string): string | null {
     if (!this.isHost(token)) return "Only the host can start the game.";
     if (this.s.started) return null;
@@ -259,6 +305,7 @@ export class Room {
   act(token: string, action: Action): string | null {
     const seat = this.seatOf(token);
     if (seat < 0) return "You are not seated.";
+    if (this.s.paused) return "The game is paused.";
     if (this.hand?.toAct !== seat) return "It is not your turn.";
     try {
       this.apply(seat, action);
@@ -318,7 +365,7 @@ export class Room {
     const now = this.now();
     const lag = animationMs(this.events);
     const h = this.hand;
-    if (!this.s.started) {
+    if (!this.s.started || this.s.paused) {
       this.s.pending = null;
     } else if (h) {
       const seat = h.toAct!;
@@ -358,8 +405,9 @@ export class Room {
       const seat = this.s.seats[p.seat];
       if (p.kind === "bot") {
         if (seat?.kind === "bot") {
-          const style = STYLES[seat.personality!];
-          const action = this.withRng((rng) => decide(viewFor(this.s.game, p.seat), style, rng, 250));
+          const action = this.withRng((rng) =>
+            decideAtLevel(viewFor(this.s.game, p.seat), seat.personality!, this.s.level, rng, this.s.notes),
+          );
           this.apply(p.seat, action);
         } else {
           this.autoAct(p.seat);
@@ -383,6 +431,8 @@ export class Room {
     return {
       code: this.s.code,
       started: this.s.started,
+      paused: this.s.paused,
+      level: this.s.level,
       turnMs: TURN_MS,
       turnMsLeft: p?.kind === "timeout" ? Math.max(0, p.at - this.now()) : null,
       seats: this.s.seats.map((x) =>

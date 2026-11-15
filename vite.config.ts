@@ -15,8 +15,8 @@ export default defineConfig(({ command, isPreview, mode }) => ({
         name: "Pocket Pixels",
         short_name: "Pocket Pixels",
         description: "8-bit Texas Hold'em against computer opponents. Play chips only.",
-        theme_color: "#0d1b2a",
-        background_color: "#0d1b2a",
+        theme_color: "#05050f",
+        background_color: "#05050f",
         display: "standalone",
         orientation: "portrait",
         icons: [

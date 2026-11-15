@@ -78,7 +78,7 @@ export class Table extends DurableObject<Env> {
     const att = (ws.deserializeAttachment() as Attachment | null) ?? { token: null };
 
     if (msg.t === "join") {
-      const r = room.join(msg.token, msg.name);
+      const r = room.join(msg.token, msg.name, msg.avatar);
       if ("error" in r) return this.send(ws, { t: "error", message: r.error });
       ws.serializeAttachment({ token: r.token } satisfies Attachment);
       // The same player opened the table somewhere else: close the old connection.
@@ -103,6 +103,9 @@ export class Table extends DurableObject<Env> {
       case "removeBot": error = room.removeBot(token, msg.seat); break;
       case "rebuy": error = room.rebuy(token); break;
       case "back": room.back(token); break;
+      case "profile": room.profile(token, msg.name, msg.avatar); break;
+      case "pause": error = room.pause(token, msg.paused); break;
+      case "level": error = room.setLevel(token, msg.level); break;
       case "leave":
         room.leave(token);
         ws.serializeAttachment({ token: null } satisfies Attachment);

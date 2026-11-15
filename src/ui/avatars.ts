@@ -1,5 +1,6 @@
 // Pixel-art portraits, 14 x 14, drawn for this project.
 
+import { BASES, VARIANTS } from "./avatar-presets";
 import { type Palette, pixelSVG } from "./pixels";
 
 export interface AvatarArt {
@@ -119,21 +120,38 @@ export const AVATARS: Record<string, AvatarArt> = {
   },
 };
 
-// People at online tables: the player sprite with a different cap and shirt per seat.
-const PLAYER_COLORS: [cap: string, shirt: string, bg: string][] = [
-  ["#ffd166", "#3a86ff", "#26425e"],
-  ["#ff6b9d", "#2ec4b6", "#3d2b56"],
-  ["#7ae582", "#ef476f", "#22404a"],
-  ["#4cc9f0", "#f77f00", "#3b2f2f"],
-  ["#c77dff", "#90be6d", "#2b3a55"],
-];
-PLAYER_COLORS.forEach(([cap, shirt, bg], i) => {
-  const you = AVATARS.you!;
-  AVATARS[`p${i}`] = { rows: you.rows, bg, palette: { ...you.palette, c: cap, b: shirt } };
-});
+export interface AvatarChoice {
+  key: string;
+  name: string;
+  space: boolean;
+}
+
+/** Every avatar a player can pick, space ones first. */
+export const AVATAR_CHOICES: AvatarChoice[] = [];
+
+for (const v of VARIANTS) {
+  const base = BASES[v.base]!;
+  AVATARS[v.key] = { rows: base.rows, bg: v.bg, palette: { ...base.fixed, ...v.colors } };
+  AVATAR_CHOICES.push({ key: v.key, name: v.name, space: base.space });
+}
+AVATAR_CHOICES.sort((a, b) => Number(b.space) - Number(a.space));
+
+export const DEFAULT_AVATAR = "cap-1";
+
+// Older online seats used p0 to p4; keep them drawing.
+["cap-1", "cap-2", "cap-3", "cap-4", "astronaut-2"].forEach((k, i) => (AVATARS[`p${i}`] = AVATARS[k]!));
 
 /** An empty seat at an online table. */
 AVATARS.open = { rows: [], palette: {}, bg: "transparent" };
+
+/** Avatars a player may choose (not the bots' own faces). */
+export function isAvatarKey(key: unknown): key is string {
+  return typeof key === "string" && VARIANTS.some((v) => v.key === key);
+}
+
+export function avatarName(key: string): string {
+  return VARIANTS.find((v) => v.key === key)?.name ?? "Avatar";
+}
 
 export function avatarSVG(key: string, scale = 3): string {
   const art = AVATARS[key] ?? AVATARS.you!;

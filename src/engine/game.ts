@@ -66,6 +66,17 @@ export interface HandState {
   /** Size of the last full raise; a new raise must be at least this much more. */
   minRaise: number;
   result: HandResult | null;
+  /** Every blind and action so far this hand, in order. Public information. */
+  history: HandAction[];
+}
+
+export interface HandAction {
+  seat: number;
+  street: Street;
+  kind: ActionKind | "sb" | "bb";
+  /** Total in front of the player on this street after the action. */
+  amount: number;
+  allIn: boolean;
 }
 
 export interface GameState {
@@ -220,7 +231,7 @@ export function startHand(prev: GameState, opts: StartOptions = {}): { state: Ga
 
   const h: HandState = {
     number: s.handNo, dealer: s.dealer, sbSeat, bbSeat, deck, board: [], street: "preflop",
-    toAct: null, currentBet: 0, minRaise: s.bigBlind, result: null,
+    toAct: null, currentBet: 0, minRaise: s.bigBlind, result: null, history: [],
   };
   s.hand = h;
   events.push({ type: "handStart", handNo: s.handNo, dealer: s.dealer });
@@ -229,6 +240,7 @@ export function startHand(prev: GameState, opts: StartOptions = {}): { state: Ga
     const p = s.seats[seat]!;
     const amount = put(p, size);
     p.lastAction = { kind, amount, allIn: p.stack === 0 };
+    h.history.push({ seat, street: "preflop", kind, amount, allIn: p.stack === 0 });
     events.push({ type: "blind", seat, amount, kind, allIn: p.stack === 0 });
   }
   events.push({ type: "deal", seats: live.map((p) => p.id) });
@@ -318,6 +330,7 @@ export function applyAction(prev: GameState, seat: number, action: Action): { st
   p.acted = true;
   const allIn = p.status === "allin";
   p.lastAction = { kind, amount: p.streetBet, allIn };
+  h.history.push({ seat, street: h.street, kind, amount: p.streetBet, allIn });
   events.push({ type: "action", seat, kind, amount: p.streetBet, added, allIn });
 
   const contenders = s.seats.filter((o) => o.status === "active" || o.status === "allin");
@@ -443,6 +456,8 @@ export interface PlayerView {
   minRaise: number;
   players: PublicSeat[];
   legal: LegalActions | null;
+  /** Public record of this hand's blinds and actions. */
+  history: HandAction[];
 }
 
 export function viewFor(state: GameState, seat: number): PlayerView {
@@ -464,5 +479,6 @@ export function viewFor(state: GameState, seat: number): PlayerView {
       committed: p.committed, status: p.status,
     })),
     legal: h.toAct === seat ? legalActions(state, seat) : null,
+    history: h.history.map((a) => ({ ...a })),
   };
 }

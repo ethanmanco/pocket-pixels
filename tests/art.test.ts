@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AVATARS } from "../src/ui/avatars";
+import { AVATARS, AVATAR_CHOICES } from "../src/ui/avatars";
 
 describe("pixel art", () => {
   it("every avatar is a 14 x 14 grid using only its palette", () => {
@@ -10,5 +10,11 @@ describe("pixel art", () => {
         for (const ch of row) if (ch !== ".") expect(art.palette[ch], `${name} '${ch}'`).toBeDefined();
       });
     }
+  });
+
+  it("offers dozens of avatars to pick from, many of them space themed", () => {
+    expect(AVATAR_CHOICES.length).toBeGreaterThanOrEqual(60);
+    expect(AVATAR_CHOICES.filter((a) => a.space).length).toBeGreaterThanOrEqual(30);
+    expect(new Set(AVATAR_CHOICES.map((a) => a.key)).size).toBe(AVATAR_CHOICES.length);
   });
 });

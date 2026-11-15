@@ -19,6 +19,7 @@ import { pixelSVG } from "./pixels";
 import { isMuted, setMuted, sfx, unlockAudio } from "./sfx";
 import { LocalSource, OnlineSource, type Opponent, type TableSource, type Update } from "./source";
 import { type Saved, START_STACK, defaults, emptyStats, load, save } from "./storage";
+import { paintSpace } from "./space";
 import { paintTable } from "./table";
 import { devSeed, reducedMotion, sleep } from "./timing";
 
@@ -128,6 +129,15 @@ export class TableApp {
       mute: q('[data-ui="mute"]'), menuBtn: q('[data-ui="menu"]'), menu: q("dialog"),
     };
     paintTable(this.el.felt);
+    // The starfield behind everything.
+    const space = document.createElement("canvas");
+    space.className = "space";
+    space.setAttribute("aria-hidden", "true");
+    const twinkles = document.createElement("div");
+    twinkles.className = "twinkles";
+    twinkles.setAttribute("aria-hidden", "true");
+    document.body.prepend(space, twinkles);
+    paintSpace(space, twinkles);
     // Seat positions depend on the table's height: redraw when it changes.
     let lastHeight = 0;
     new ResizeObserver(() => {
