@@ -986,7 +986,10 @@ function resultText(view: TableView, r: HandResult): string {
       const tag = r.pots.length > 1 ? (i === 0 ? "Main pot: " : r.pots.length > 2 ? `Side pot ${i}: ` : "Side pot: ") : "";
       const how = pot.handText ? ` with ${lowerFirst(pot.handText)}` : "";
       if (pot.winners.length > 1) {
-        return `${tag}Split. ${pot.winners.map(name).join(" and ")} each win ${fmt(pot.shares[pot.winners.length - 1]!)}${how}.`;
+        // "You, Pebble and Bo": you first, commas, "and" before the last.
+        const names = [...pot.winners].sort((a, b) => (a === HUMAN ? -1 : b === HUMAN ? 1 : 0)).map(name);
+        const list = names.length > 2 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names.join(" and ");
+        return `${tag}Split. ${list} each win ${fmt(pot.shares[pot.winners.length - 1]!)}${how}.`;
       }
       const w = pot.winners[0]!;
       return `${tag}${name(w)} ${verb(w)} ${fmt(pot.amount)}${how}.`;
