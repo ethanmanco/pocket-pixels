@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanName, isValidCode, parseClientMsg, randomCode } from "../src/online/protocol";
-import { AWAY_TURN_MS, Room, TURN_MS, newRoom } from "../src/online/room";
+import { AWAY_TURN_MS, EXPIRE_MS, Room, TURN_MS, newRoom } from "../src/online/room";
 
 function setup() {
   let clock = 1_000_000;
@@ -200,7 +200,7 @@ describe("room", () => {
     room.addBot("tok1");
     room.start("tok1");
     room.leave("tok1");
-    expect(room.s.pending).toBeNull();
+    expect(room.s.pending?.kind).toBe("expire");
     expect(room.empty).toBe(true);
   });
 
@@ -218,5 +218,30 @@ describe("room", () => {
     expect(a.view.seats[1]!.hole).toHaveLength(0);
     expect(b.view.seats[0]!.hole).toHaveLength(0);
     expect(b.view.seats[1]!.hole).toHaveLength(2);
+  });
+
+  it("expires a table once nobody has been connected for a while", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.addBot("tok1");
+    room.start("tok1");
+    room.disconnect("tok1");
+    // Let whatever is in progress finish on timers.
+    for (let i = 0; i < 40 && room.s.pending?.kind !== "expire"; i++) t.step();
+    expect(room.s.pending?.kind).toBe("expire");
+    expect(room.s.pending!.at).toBeGreaterThanOrEqual(1_000_000 + EXPIRE_MS);
+    t.step();
+    expect(room.expired).toBe(true);
+  });
+
+  it("a returning player cancels the expiry", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.disconnect("tok1");
+    expect(room.s.pending?.kind).toBe("expire");
+    room.join("tok1", "Ann");
+    expect(room.s.pending).toBeNull();
   });
 });

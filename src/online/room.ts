@@ -13,6 +13,8 @@ import { MAX_SEATS, type RoomView, START_CHIPS, type ServerMsg } from "./protoco
 /** How long a person has to act, and how long for someone who is away. */
 export const TURN_MS = 30_000;
 export const AWAY_TURN_MS = 3_000;
+/** A table with nobody connected is forgotten after this long. */
+export const EXPIRE_MS = 30 * 60_000;
 
 const BOT_ROSTER: { name: string; personality: BotPersonality; avatar: string }[] = [
   { name: "Pebble", personality: "cautious", avatar: "pebble" },
@@ -37,7 +39,7 @@ export interface RoomSeat {
 }
 
 export interface Pending {
-  kind: "bot" | "timeout" | "nextHand";
+  kind: "bot" | "timeout" | "nextHand" | "expire";
   at: number;
   hand: number;
   seat: number;
@@ -84,6 +86,8 @@ export function animationMs(events: readonly GameEvent[]): number {
 export class Room {
   /** Events since the last broadcast. */
   events: GameEvent[] = [];
+  /** Nobody came back in time: the server should delete this table. */
+  expired = false;
 
   constructor(
     public s: RoomState,
@@ -174,8 +178,10 @@ export class Room {
     const seat = this.seatOf(token);
     if (seat < 0) return;
     this.s.seats[seat]!.connected = false;
-    // If it was their turn, stop waiting the full time.
-    if (this.hand?.toAct === seat) this.schedule();
+    // If it was their turn, stop waiting the full time. If nothing else is
+    // scheduled, this starts the countdown to forget an abandoned table.
+    // (Rescheduling otherwise would reset someone else's turn timer.)
+    if (this.hand?.toAct === seat || !this.s.pending) this.schedule();
   }
 
   leave(token: string): void {
@@ -330,6 +336,10 @@ export class Room {
     } else {
       this.s.pending = null;
     }
+    // Nobody connected and nothing left to play: forget the table after a while.
+    if (!this.s.pending && !this.s.seats.some((p) => p?.kind === "human" && p.connected)) {
+      this.s.pending = { kind: "expire", at: now + EXPIRE_MS, hand: this.s.game.handNo, seat: -1 };
+    }
   }
 
   /** Run whatever is due. Returns true if anything changed. */
@@ -338,6 +348,10 @@ export class Room {
     if (!p || this.now() < p.at) return false;
     this.s.pending = null;
     const h = this.hand;
+    if (p.kind === "expire") {
+      this.expired = true;
+      return true;
+    }
     if (p.kind === "nextHand") {
       if (!h) this.deal();
     } else if (h && h.number === p.hand && h.toAct === p.seat) {

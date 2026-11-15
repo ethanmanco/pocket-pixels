@@ -152,8 +152,8 @@ export class Table extends DurableObject<Env> {
       const token = (ws.deserializeAttachment() as Attachment | null)?.token ?? null;
       this.send(ws, room.update(room.seatOf(token), events));
     }
-    if (room.empty && this.ctx.getWebSockets().length === 0) {
-      // Nobody left: forget the table.
+    if ((room.empty || room.expired) && this.ctx.getWebSockets().length === 0) {
+      // Nobody left (or nobody came back in time): forget the table.
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
       this.room = null;
