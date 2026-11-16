@@ -60,6 +60,8 @@ async function findSeed() {
 const seed = await findSeed();
 await page.goto(`${BASE}?seed=${seed}`, { waitUntil: "networkidle0" });
 await page.evaluate(() => document.fonts.ready);
+// Hold the twinkling stars still so the GIF only changes when the game does.
+await page.addStyleTag({ content: ".twinkles i { animation: none !important; opacity: 0.5 !important; }" });
 
 // Play in the background: pause on each decision so the controls show, then act.
 let finished = false;
@@ -82,7 +84,7 @@ while (Date.now() - started < 60_000) {
   frames.push({ buf: await page.screenshot({ type: "png" }), t: Date.now() });
   if (finished && !doneAt) doneAt = Date.now();
   if (doneAt && Date.now() - doneAt > 1200) break;
-  await new Promise((r) => setTimeout(r, 40));
+  await new Promise((r) => setTimeout(r, 70));
 }
 finished = true;
 await player;
