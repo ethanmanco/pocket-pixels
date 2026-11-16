@@ -577,6 +577,7 @@ export class TableApp {
           <button class="btn btn--small" data-m="invite">Invite friends</button>
           <button class="btn btn--small btn--fold" data-m="leave">Leave table</button>
         </div>
+        ${me && me.stack === 0 && me.status !== "active" && me.status !== "allin" ? `<button class="btn btn--small btn--go" data-m="refuel">Refuel ${fmt(START_STACK)} chips</button>` : ""}
         ${host ? `
         <ul class="seat-list">
           ${(this.room?.seats ?? []).map((s, i) => i === HUMAN ? "" : `<li>
@@ -685,6 +686,13 @@ export class TableApp {
             break;
           case "close": m.close(); break;
           case "pause": online?.pause(!this.room?.paused); break;
+          case "refuel":
+            this.saved.stats.rebuys++;
+            this.persist();
+            online?.rebuy();
+            this.say(`You refuel ${fmt(START_STACK)} chips. You're back in from the next hand.`);
+            m.close();
+            break;
           case "theme":
             this.saved.theme = b.dataset.theme === "classic" ? "classic" : "space";
             this.persist();
@@ -875,7 +883,8 @@ export class TableApp {
     ].filter(Boolean).join(" ");
 
     const stack = p.stack - (this.pendingWin?.[p.id] ?? 0);
-    const tag = away ? "Away" : p.status === "allin" ? "All in" : p.status === "folded" ? "Fold"
+    const outOfChips = !!this.room && p.stack === 0 && (p.status === "out" || !running);
+    const tag = outOfChips && (!h || h.street !== "complete" || !this.pendingWin) ? "Out" : away ? "Away" : p.status === "allin" ? "All in" : p.status === "folded" ? "Fold"
       : p.lastAction ? tagText(p.lastAction.kind) : "";
     const thinking = toAct && !isMe && !this.animating;
     const name = isMe ? this.saved.name || "You" : p.name;
@@ -964,11 +973,12 @@ export class TableApp {
           switch (b.dataset.do) {
             case "next": void this.local?.next(); break;
             case "rebuy":
+              b.disabled = true;
               this.saved.stats.rebuys++;
               this.persist();
               sfx.chips();
               this.source?.rebuy();
-              this.say(`You rebuy for ${fmt(START_STACK)}.`);
+              this.say(online ? `You refuel ${fmt(START_STACK)} chips. You're back in from the next hand.` : `You rebuy for ${fmt(START_STACK)}.`);
               break;
             case "start": online?.startGame(); break;
             case "addbot": online?.addBot(); break;
@@ -1013,8 +1023,14 @@ export class TableApp {
       const h = v.hand;
       const running = !!h && h.street !== "complete";
       const broke = !!me && me.stack === 0 && (!running || me.status === "out");
-      if (!this.animating && broke && (online || !this.local?.busy)) {
-        shell("", "You are out of chips.", `<button class="btn btn--go" data-do="rebuy">Rebuy ${fmt(START_STACK)}</button>`);
+      // Online the table keeps playing without you, so the refuel button must not
+      // blink away while other players' moves animate.
+      if (broke && (online || (!this.animating && !this.local?.busy))) {
+        shell(
+          "",
+          online ? "You are out of chips. Refuel to get back in the game." : "You are out of chips.",
+          `<button class="btn btn--go" data-do="rebuy">${online ? `Refuel ${fmt(START_STACK)} and rejoin` : `Rebuy ${fmt(START_STACK)}`}</button>`,
+        );
         return wire();
       }
       if (online && room?.seats[HUMAN]?.away) {
@@ -1026,8 +1042,8 @@ export class TableApp {
         return wire();
       }
       let note = "";
-      if (running && h!.toAct !== null && h!.toAct !== HUMAN) note = `Waiting for ${esc(v.seats[h!.toAct]?.name ?? "")}`;
-      else if (online && running && me?.status === "out") note = "You join in the next hand.";
+      if (online && running && me?.status === "out") note = "You're back in from the next hand.";
+      else if (running && h!.toAct !== null && h!.toAct !== HUMAN) note = `Waiting for ${esc(v.seats[h!.toAct]?.name ?? "")}`;
       else if (online && !running) note = "Next hand starting soon.";
       shell("", note, disabledRow);
       return;

@@ -290,5 +290,45 @@ describe("room", () => {
     expect(room.s.game.handNo).toBeGreaterThanOrEqual(8);
     expect(Object.keys(room.s.notes).length).toBeGreaterThan(0);
   });
+
+  it("a player who runs out of chips can refuel mid-hand and is dealt the next hand", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.join(undefined, "Bo");
+    room.addBot("tok1");
+    room.start("tok1");
+    t.step(); // deal hand 1
+    // Ann goes broke (as if she lost everything last hand).
+    room.s.game.seats[0]!.stack = 0;
+    room.s.game.seats[0]!.status = "out";
+    room.s.game.seats[0]!.hole = [];
+    expect(room.rebuy("tok1")).toBeNull();
+    expect(room.s.game.seats[0]!.stack).toBe(1000);
+    expect(room.rebuy("tok1")).toMatch(/out of chips/); // only when broke
+    // Play on until the next deal: Ann is dealt in again.
+    const hand = room.s.game.handNo;
+    for (let i = 0; i < 200 && room.s.game.handNo === hand; i++) {
+      const h = room.s.game.hand!;
+      if (h.street !== "complete" && h.toAct === 1) {
+        room.act("tok2", h.currentBet <= room.s.game.seats[1]!.streetBet ? { type: "check" } : { type: "call" });
+      } else t.step();
+    }
+    expect(room.s.game.handNo).toBe(hand + 1);
+    expect(room.s.game.seats[0]!.hole).toHaveLength(2);
+  });
+
+  it("a broke player is not dealt in until they refuel", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.join(undefined, "Bo");
+    room.addBot("tok1");
+    room.s.game.seats[0]!.stack = 0;
+    room.start("tok1");
+    t.step();
+    expect(room.s.game.seats[0]!.hole).toHaveLength(0);
+    expect(room.s.game.seats[0]!.status).toBe("out");
+  });
 });
 

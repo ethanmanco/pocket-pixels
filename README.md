@@ -19,7 +19,7 @@ Play chips only. There is no real money, nothing to buy, and no ads.
 - **Chips you can see:** every bet sits in front of the player as a stack of pixel chips, bets slide into the pot at the end of each round, and the pot slides to the winner.
 - **Saved on your phone:** your chips and stats (hands played, hands won, biggest pot, best hand, rebuys). Go broke and a Rebuy button gives you 1,000 more.
 - **Sound:** short chiptune effects for dealing, chips, checks, folds and wins, with a mute button that is remembered.
-- **Play with friends:** open the menu, tap New table, and share the link (or the 5-letter code). Up to five players per table; the host can fill empty seats with bots, pick how well they play, and pause the game. Each player gets 30 seconds to act, and someone who drops out sits out until they return.
+- **Play with friends:** open the menu, tap New table, and share the link (or the 5-letter code). Up to five players per table; the host can fill empty seats with bots, pick how well they play, and pause the game. Each player gets 30 seconds to act, someone who drops out sits out until they return, and a player who runs out of chips can refuel 1,000 and rejoin at the next hand.
 - **Four bot levels:** Easy, Regular, Hard and Insane. The level changes only how the bots decide, never the cards: the shuffle and the deal are the same at every level.
 - **Your look:** pick a name and one of 120 pixel avatars in three groups: Space (astronauts, aliens, robots, cyborgs, brain aliens, tentacle horrors, insect aliens and more), Monsters (zombies, vampires, mummies, skulls, werewolves, demons, mutants and more) and Friends.
 - **Two themes:** Space (a pixel starfield with a nebula and a ringed planet, and a deep-space table with station lights) or Classic (a green felt table in a wooden rail). Switch in the menu; the cards look the same in both.
@@ -105,7 +105,7 @@ It fits comfortably in Cloudflare's free plan (100,000 Durable Object requests a
 - online tables: seating, reconnecting, the host's controls (bots, pause, level), name and avatar changes, turn timeouts, sitting out, leaving mid-hand, and that each phone's update holds only its own cards;
 - every bot level always makes a legal move, and all 120 avatars are well-formed 14 by 14 grids.
 
-`npm run check:online` runs an end-to-end test in which two headless browsers play a table against each other and a bot.
+`npm run check:online` runs an end-to-end test in which two headless browsers play a table against each other and a bot. `npm run check:refuel` checks that a player who runs out of chips can always refuel and is dealt back in while the rest of the table plays on.
 
 ## Run it yourself
 
