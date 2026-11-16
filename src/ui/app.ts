@@ -12,16 +12,16 @@ import { evaluateHand } from "../engine/evaluate";
 import type { Action, GameEvent, HandResult, LegalActions } from "../engine/game";
 import { type SeatView, type TableView, viewBetweenHands } from "../engine/view";
 import { type RoomView, isValidCode, randomCode } from "../online/protocol";
-import { AVATAR_CHOICES, avatarBg, avatarName, avatarSVG } from "./avatars";
+import { AVATAR_CHOICES, AVATAR_GROUPS, avatarBg, avatarName, avatarSVG } from "./avatars";
 import { cardBackEl, cardEl, cardList, emptySlotEl } from "./cards";
 import { chipsSVG, pileColumns, stackColumn } from "./chips";
 import { flipIn, slide } from "./motion";
 import { pixelSVG } from "./pixels";
 import { isMuted, setMuted, sfx, unlockAudio } from "./sfx";
 import { LocalSource, OnlineSource, type Opponent, type TableSource, type Update } from "./source";
-import { type Saved, START_STACK, defaults, emptyStats, load, save } from "./storage";
+import { type Saved, START_STACK, type Theme, defaults, emptyStats, load, save } from "./storage";
 import { paintSpace } from "./space";
-import { paintTable } from "./table";
+import { paintTable, setTableTheme } from "./table";
 import { devSeed, reducedMotion, sleep } from "./timing";
 
 export type { Opponent } from "./source";
@@ -105,6 +105,7 @@ export class TableApp {
     // A demo seed starts from a clean slate so the hand plays out the same way.
     this.saved = devSeed() === null ? load() : defaults();
     setMuted(this.saved.muted);
+    this.applyTheme(this.saved.theme);
 
     root.innerHTML = `
       <header class="topbar">
@@ -219,6 +220,13 @@ export class TableApp {
       case "a": click('[data-preset="all"]'); break;
       case "n": click('[data-do="next"]') || click('[data-do="rebuy"]'); break;
     }
+  }
+
+  /** Space look or the classic green table; cards look the same in both. */
+  private applyTheme(theme: Theme): void {
+    document.documentElement.dataset.theme = theme;
+    setTableTheme(theme);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "space" ? "#05050f" : "#0d1b2a");
   }
 
   // ---------------------------------------------------------------- saving
@@ -599,6 +607,13 @@ export class TableApp {
         <h3>Sound</h3>
         <button class="btn btn--small toggle" data-m="sound" aria-pressed="${!isMuted()}">${isMuted() ? "Off" : "On"}</button>
       </section>
+      <section class="menu-section">
+        <h3 id="theme-label">Theme</h3>
+        <div class="seg" role="radiogroup" aria-labelledby="theme-label">
+          <button class="btn btn--small" role="radio" aria-checked="${this.saved.theme === "space"}" data-m="theme" data-theme="space">Space</button>
+          <button class="btn btn--small" role="radio" aria-checked="${this.saved.theme === "classic"}" data-m="theme" data-theme="classic">Classic</button>
+        </div>
+      </section>
       ${this.profileSection()}
       ${this.levelSection()}
       ${friends}
@@ -670,6 +685,12 @@ export class TableApp {
             break;
           case "close": m.close(); break;
           case "pause": online?.pause(!this.room?.paused); break;
+          case "theme":
+            this.saved.theme = b.dataset.theme === "classic" ? "classic" : "space";
+            this.persist();
+            this.applyTheme(this.saved.theme);
+            this.renderMenu();
+            break;
           case "level": {
             const level = b.dataset.level as (typeof LEVELS)[number];
             if (online) online.setLevel(level);
@@ -687,8 +708,10 @@ export class TableApp {
 
   /** Name and avatar picker. */
   private profileSection(): string {
-    const choices = AVATAR_CHOICES.map(
-      (a) => `<button class="avatar-pick" role="radio" aria-checked="${a.key === this.saved.avatar}" aria-label="${esc(a.name)}" data-avatar="${a.key}" style="--c:${avatarBg(a.key)}">${avatarSVG(a.key)}</button>`,
+    const pick = (a: (typeof AVATAR_CHOICES)[number]) =>
+      `<button class="avatar-pick" role="radio" aria-checked="${a.key === this.saved.avatar}" aria-label="${esc(a.name)}" data-avatar="${a.key}" style="--c:${avatarBg(a.key)}">${avatarSVG(a.key)}</button>`;
+    const choices = AVATAR_GROUPS.map(
+      (g) => `<p class="avatar-group">${g.title}</p>${AVATAR_CHOICES.filter((a) => a.group === g.group).map(pick).join("")}`,
     ).join("");
     return `
       <section class="menu-section">

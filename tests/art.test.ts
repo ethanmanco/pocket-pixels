@@ -13,7 +13,8 @@ describe("pixel art", () => {
   });
 
   it("offers dozens of avatars to pick from, many of them space themed", () => {
-    expect(AVATAR_CHOICES.length).toBeGreaterThanOrEqual(60);
+    expect(AVATAR_CHOICES.length).toBeGreaterThanOrEqual(120);
+    expect(AVATAR_CHOICES.filter((a) => a.group === "monster").length).toBeGreaterThanOrEqual(40);
     expect(AVATAR_CHOICES.filter((a) => a.space).length).toBeGreaterThanOrEqual(30);
     expect(new Set(AVATAR_CHOICES.map((a) => a.key)).size).toBe(AVATAR_CHOICES.length);
   });

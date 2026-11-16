@@ -1,7 +1,8 @@
 // The table drawn as pixel art: nested rounded rectangles rasterized into
-// rows of big pixels, so the corners step like an 8-bit sprite. Space theme:
-// a deep-blue felt printed with faint stars, inside a station rail with small
-// running lights.
+// rows of big pixels, so the corners step like an 8-bit sprite. Two looks:
+//   space    a deep-blue felt printed with faint stars, inside a station rail
+//            with small running lights
+//   classic  green felt inside a wooden rail
 
 import { Rng } from "../engine/rng";
 
@@ -12,7 +13,9 @@ interface Layer {
   color: string;
 }
 
-const LAYERS: Layer[] = [
+export type TableTheme = "space" | "classic";
+
+const SPACE_LAYERS: Layer[] = [
   { inset: 0, color: "#04030c" }, // outline
   { inset: 1, color: "#8a8fd8" }, // rail highlight
   { inset: 2, color: "#3d3a7a" }, // rail
@@ -21,6 +24,25 @@ const LAYERS: Layer[] = [
   { inset: 7, color: "#131e4a" }, // felt
   { inset: 10, color: "#17275c" }, // felt center
 ];
+
+const CLASSIC_LAYERS: Layer[] = [
+  { inset: 0, color: "#140b05" }, // outline
+  { inset: 1, color: "#6b4226" }, // rail highlight
+  { inset: 2, color: "#4a2c1a" }, // rail
+  { inset: 4, color: "#140b05" }, // inner outline
+  { inset: 5, color: "#145238" }, // felt edge
+  { inset: 7, color: "#18603f" }, // felt
+  { inset: 10, color: "#1b6e4b" }, // felt center
+];
+
+let theme: TableTheme = "space";
+const repaints = new Set<() => void>();
+
+/** Switch every table on the page to a look. */
+export function setTableTheme(t: TableTheme): void {
+  theme = t;
+  for (const repaint of repaints) repaint();
+}
 
 const FELT_STARS = ["#2a3a78", "#33478c", "#4a5fa8"];
 const LIGHTS = ["#36e2ff", "#ffd166", "#ff6b9d"];
@@ -37,7 +59,7 @@ export function tableSVG(width: number, height: number): string {
   const h = Math.floor(height / PX);
   const radius = Math.max(6, Math.round(Math.min(w, h) * 0.16));
   let body = "";
-  for (const layer of LAYERS) {
+  for (const layer of theme === "space" ? SPACE_LAYERS : CLASSIC_LAYERS) {
     const lw = w - layer.inset * 2;
     const lh = h - layer.inset * 2;
     const r = Math.max(2, radius - layer.inset);
@@ -51,6 +73,10 @@ export function tableSVG(width: number, height: number): string {
       body += `<rect x="${layer.inset + inset}" y="${layer.inset + y}" width="${lw - inset * 2}" height="${run}" fill="${layer.color}"/>`;
       y += run;
     }
+  }
+
+  if (theme === "classic") {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w * PX}" height="${h * PX}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">${body}</svg>`;
   }
 
   // Faint stars printed on the felt (same pattern every time).
@@ -85,12 +111,13 @@ export function paintTable(el: HTMLElement): void {
   let last = "";
   const paint = () => {
     const { width, height } = el.getBoundingClientRect();
-    const key = `${Math.round(width)}x${Math.round(height)}`;
+    const key = `${theme}:${Math.round(width)}x${Math.round(height)}`;
     if (key === last || width < 10 || height < 10) return;
     last = key;
     const svg = tableSVG(width, height);
     el.style.backgroundImage = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   };
   paint();
+  repaints.add(paint);
   new ResizeObserver(paint).observe(el);
 }

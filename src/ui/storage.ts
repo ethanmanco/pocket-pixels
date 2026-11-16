@@ -7,6 +7,8 @@ import { DEFAULT_AVATAR, isAvatarKey } from "./avatars";
 
 export const START_STACK = 1000;
 
+export type Theme = "space" | "classic";
+
 export interface BestHand {
   score: number;
   name: string;
@@ -32,6 +34,8 @@ export interface Saved {
   avatar: string;
   /** How well the bots play in solo games. */
   level: Level;
+  /** Space look, or the classic green table. */
+  theme: Theme;
 }
 
 const KEY = "pocket-pixels:v1";
@@ -41,7 +45,7 @@ export function emptyStats(): Stats {
 }
 
 export function defaults(): Saved {
-  return { chips: START_STACK, stats: emptyStats(), muted: false, players: 5, name: "", avatar: DEFAULT_AVATAR, level: "regular" };
+  return { chips: START_STACK, stats: emptyStats(), muted: false, players: 5, name: "", avatar: DEFAULT_AVATAR, level: "regular", theme: "space" };
 }
 
 const count = (v: unknown, fallback: number) =>
@@ -62,6 +66,7 @@ export function load(storage: Pick<Storage, "getItem"> | null = safeStorage()): 
       name: typeof v.name === "string" ? v.name.replace(/[^A-Za-z0-9 ]/g, "").slice(0, 12) : "",
       avatar: isAvatarKey(v.avatar) ? v.avatar : DEFAULT_AVATAR,
       level: isLevel(v.level) ? v.level : "regular",
+      theme: v.theme === "classic" ? "classic" : "space",
       players: [2, 3, 4, 5].includes(v.players as number) ? (v.players as number) : d.players,
       stats: {
         handsPlayed: count(s.handsPlayed, 0),

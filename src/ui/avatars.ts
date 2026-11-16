@@ -1,6 +1,7 @@
 // Pixel-art portraits, 14 x 14, drawn for this project.
 
-import { BASES, VARIANTS } from "./avatar-presets";
+import { MONSTER_BASES, MONSTER_VARIANTS } from "./avatar-monsters";
+import { type AvatarGroup, BASES, VARIANTS as FIRST_SET } from "./avatar-presets";
 import { type Palette, pixelSVG } from "./pixels";
 
 export interface AvatarArt {
@@ -124,17 +125,30 @@ export interface AvatarChoice {
   key: string;
   name: string;
   space: boolean;
+  group: AvatarGroup;
 }
 
-/** Every avatar a player can pick, space ones first. */
+/** Every pickable avatar: the first set plus mutants, horror and aliens. */
+const VARIANTS = [...FIRST_SET, ...MONSTER_VARIANTS];
+const ALL_BASES = { ...BASES, ...MONSTER_BASES };
+const GROUP_ORDER: AvatarGroup[] = ["space", "monster", "friends"];
+
+export const AVATAR_GROUPS: { group: AvatarGroup; title: string }[] = [
+  { group: "space", title: "Space" },
+  { group: "monster", title: "Monsters" },
+  { group: "friends", title: "Friends" },
+];
+
+/** Every avatar a player can pick: space, then monsters, then friends. */
 export const AVATAR_CHOICES: AvatarChoice[] = [];
 
 for (const v of VARIANTS) {
-  const base = BASES[v.base]!;
+  const base = ALL_BASES[v.base]!;
   AVATARS[v.key] = { rows: base.rows, bg: v.bg, palette: { ...base.fixed, ...v.colors } };
-  AVATAR_CHOICES.push({ key: v.key, name: v.name, space: base.space });
+  const group = base.group ?? (base.space ? "space" : "friends");
+  AVATAR_CHOICES.push({ key: v.key, name: v.name, space: group === "space", group });
 }
-AVATAR_CHOICES.sort((a, b) => Number(b.space) - Number(a.space));
+AVATAR_CHOICES.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
 
 export const DEFAULT_AVATAR = "cap-1";
 

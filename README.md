@@ -21,8 +21,8 @@ Play chips only. There is no real money, nothing to buy, and no ads.
 - **Sound:** short chiptune effects for dealing, chips, checks, folds and wins, with a mute button that is remembered.
 - **Play with friends:** open the menu, tap New table, and share the link (or the 5-letter code). Up to five players per table; the host can fill empty seats with bots, pick how well they play, and pause the game. Each player gets 30 seconds to act, and someone who drops out sits out until they return.
 - **Four bot levels:** Easy, Regular, Hard and Insane. The level changes only how the bots decide, never the cards: the shuffle and the deal are the same at every level.
-- **Your look:** pick a name and one of 60 pixel avatars (36 of them space themed: astronauts, aliens, robots, ringed planets, UFO pilots and more).
-- **Space theme:** a pixel starfield with a nebula and a ringed planet, and a deep-space table with station lights.
+- **Your look:** pick a name and one of 120 pixel avatars in three groups: Space (astronauts, aliens, robots, cyborgs, brain aliens, tentacle horrors, insect aliens and more), Monsters (zombies, vampires, mummies, skulls, werewolves, demons, mutants and more) and Friends.
+- **Two themes:** Space (a pixel starfield with a nebula and a ringed planet, and a deep-space table with station lights) or Classic (a green felt table in a wooden rail). Switch in the menu; the cards look the same in both.
 - **Desktop too:** on a wide screen the table fills the window with your controls in a side column, and F, C, R, A and N work as keyboard shortcuts.
 - **Installable:** add it to your home screen and solo play works offline.
 
@@ -103,7 +103,7 @@ It fits comfortably in Cloudflare's free plan (100,000 Durable Object requests a
 - that a player's view never includes the deck or anyone else's cards;
 - saving and loading when storage is empty, broken, tampered with, or blocked;
 - online tables: seating, reconnecting, the host's controls (bots, pause, level), name and avatar changes, turn timeouts, sitting out, leaving mid-hand, and that each phone's update holds only its own cards;
-- every bot level always makes a legal move, and every avatar is a well-formed 14 by 14 grid.
+- every bot level always makes a legal move, and all 120 avatars are well-formed 14 by 14 grids.
 
 `npm run check:online` runs an end-to-end test in which two headless browsers play a table against each other and a bot.
 

@@ -482,3 +482,28 @@ svg { display: block; }
 @media (min-width: 900px) and (min-height: 860px) {
   :root { --avatar: 70px; }
 }
+
+.avatar-group { grid-column: 1 / -1; margin: 6px 0 0; font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+
+/* ------------------------------------------------------------------ classic theme */
+/* The original look: green felt, wooden rail, plain dark background. Cards are unchanged. */
+html[data-theme="classic"] {
+  --bg: #0d1b2a;
+  --accent: #ffd166;
+  --btn: #26425e;
+  --btn-edge: #0a1622;
+  --fold: #8c2f39;
+  --call: #2f6f8c;
+  --raise: #c47f14;
+  --go: #2f8c4e;
+}
+html[data-theme="classic"] .space,
+html[data-theme="classic"] .twinkles { display: none; }
+html[data-theme="classic"] .seat.is-turn::after { background: #0b2a1c; }
+html[data-theme="classic"] .menu { background: #13263a; box-shadow: inset 0 0 0 3px #4a2c1a, inset 0 0 0 5px #140b05; }
+html[data-theme="classic"] .rate { background: #1b3048; }
+html[data-theme="classic"] .rate:hover, html[data-theme="classic"] .rate:focus-visible { background: #24405e; }
+@media (min-width: 900px) and (min-height: 560px) {
+  html[data-theme="classic"] .log,
+  html[data-theme="classic"] .controls { background: #13263ae6; }
+}

@@ -4,9 +4,13 @@
 
 import type { Palette } from "./pixels";
 
+export type AvatarGroup = "space" | "monster" | "friends";
+
 export interface Base {
   rows: string[];
   space: boolean;
+  /** Where it sits in the picker (default: space or friends, from `space`). */
+  group?: AvatarGroup;
   /** Colors shared by every variant (a variant can still override them). */
   fixed: Palette;
 }

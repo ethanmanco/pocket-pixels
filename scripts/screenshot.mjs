@@ -13,11 +13,17 @@ const page = await browser.newPage();
 const mobile = Number(w) < 700;
 await page.setViewport({ width: Number(w), height: Number(h), deviceScaleFactor: mobile ? 2 : 1, isMobile: mobile, hasTouch: mobile });
 page.on("pageerror", (e) => console.log("pageerror:", e.message));
+// SAVED='{"theme":"classic"}' preloads saved settings (ignored by ?seed= demo URLs).
+if (process.env.SAVED) {
+  await page.evaluateOnNewDocument((saved) => localStorage.setItem("pocket-pixels:v1", saved), process.env.SAVED);
+}
 await page.goto(url, { waitUntil: "networkidle0" });
 await page.evaluate(() => document.fonts.ready);
 if (moves === "menu") {
   await page.click('[data-ui="menu"]');
   await new Promise((r) => setTimeout(r, 300));
+  // SCROLL=<css selector> scrolls the menu to that element.
+  if (process.env.SCROLL) await page.$eval(process.env.SCROLL, (e) => e.scrollIntoView({ block: "start" }));
 }
 for (let i = 0; i < (Number(moves) || 0); i++) {
   await page.waitForSelector('.controls [data-act="check"]:not(:disabled), .controls [data-act="call"]:not(:disabled)', { timeout: 10_000 });
