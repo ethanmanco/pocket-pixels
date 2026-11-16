@@ -4,6 +4,9 @@ import { parseCards } from "../src/engine/cards";
 import { type GameState, applyAction, createGame, legalActions, rebuy, startHand, viewFor } from "../src/engine/game";
 import { Rng } from "../src/engine/rng";
 
+// Environment variables for the optional ladder run (Node types are not part of this project).
+declare const process: { env: Record<string, string | undefined> };
+
 const c = (s: string) => parseCards(s);
 
 describe("starting hand chart", () => {
