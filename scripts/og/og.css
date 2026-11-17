@@ -1,0 +1,86 @@
+html, body { width: 1200px; height: 630px; overflow: hidden; }
+
+.og {
+  --board-w: 84px;
+  --board-h: calc(var(--board-w) * 1.39);
+  --me-w: 118px;
+  --me-h: calc(var(--me-w) * 1.4);
+  position: relative;
+  width: 1200px; height: 630px;
+  display: grid;
+  grid-template-columns: 520px 1fr;
+  align-items: center;
+  padding: 0 56px 0 72px;
+}
+
+/* Card faces follow the card size (same rules as the desktop table). */
+.og .card--md .card-rank { font-size: calc(var(--board-w) * 0.31); }
+.og .card--lg .card-rank { font-size: calc(var(--me-w) * 0.31); }
+.og .card--md .card-corner, .og .card--lg .card-corner { top: 7%; left: 9%; gap: 4px; }
+.og .card--md .card-corner .card-suit { width: calc(var(--board-w) * 0.24); height: auto; }
+.og .card--lg .card-corner .card-suit { width: calc(var(--me-w) * 0.22); height: auto; }
+.og .card--md .card-pip { width: calc(var(--board-w) * 0.42); height: auto; right: 9%; bottom: 7%; transform: none; }
+.og .card--lg .card-pip { width: calc(var(--me-w) * 0.4); height: auto; right: 9%; bottom: 7%; transform: none; }
+
+/* ---------------------------------------------------------------- left: the pitch */
+.og-tag {
+  display: inline-block; margin: 0 0 18px;
+  padding: 8px 14px 9px;
+  background: #0a0b22; color: var(--accent);
+  border: 3px solid #3d3a7a;
+  font-size: 22px; letter-spacing: 1px;
+  clip-path: var(--step);
+}
+.logo {
+  margin: 0; display: flex; flex-direction: column;
+  font-size: 100px; line-height: 0.92; font-weight: 700; letter-spacing: 2px;
+  color: var(--gold);
+  text-shadow: 6px 6px 0 #a3306a, 12px 12px 0 #1b1240;
+}
+.logo-2 { color: var(--accent); text-shadow: 6px 6px 0 #2b5fc0, 12px 12px 0 #1b1240; }
+.facts {
+  list-style: none; margin: 30px 0 0; padding: 0;
+  display: grid; gap: 10px;
+  font-size: 25px; color: var(--ink);
+  text-shadow: 2px 2px 0 #000;
+}
+.facts li::before { content: ""; display: inline-block; width: 10px; height: 10px; margin: 0 14px 4px 0; background: var(--gold); box-shadow: 3px 3px 0 #a3306a; }
+.faces { display: flex; gap: 12px; margin-top: 28px; }
+.face {
+  width: 60px; height: 60px; display: grid; place-items: center;
+  clip-path: var(--step);
+  box-shadow: inset 0 0 0 3px #0008;
+}
+.face svg { width: 48px; height: 48px; }
+
+/* ---------------------------------------------------------------- right: the table */
+.scene { position: relative; height: 470px; }
+.og-table {
+  position: absolute; inset: 20px 0 80px 0;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding-bottom: 54px;
+}
+.og-pot { display: flex; align-items: flex-end; gap: 10px; }
+.og-pot .pot-amount { font-size: 20px; color: var(--gold); text-shadow: 2px 2px 0 #000; margin-bottom: 6px; }
+.og-board { display: flex; gap: 8px; filter: drop-shadow(3px 3px 0 #0008); }
+.og-board .card:nth-child(n + 4) { filter: brightness(0.62); }
+.og-win {
+  position: absolute; top: -18px; right: 34px;
+  padding: 8px 14px 9px;
+  background: var(--gold); color: #1b1240;
+  font-size: 22px; font-weight: 700;
+  clip-path: var(--step);
+  transform: rotate(4deg);
+  box-shadow: inset 0 -4px 0 #cf7f10;
+}
+.og-hole {
+  position: absolute; left: 50%; bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  filter: drop-shadow(5px 5px 0 #000a);
+}
+.og-hole .card:first-child { transform: rotate(-7deg) translateY(4px); }
+.og-hole .card:last-child { transform: rotate(7deg) translateY(4px); margin-left: -14px; }
+

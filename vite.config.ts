@@ -28,6 +28,8 @@ export default defineConfig(({ command, isPreview, mode }) => ({
       workbox: {
         // Cache everything the game needs, including the font, so it plays offline.
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // The link preview image is only for chat apps, not the game.
+        globIgnores: ["**/og.png"],
       },
     }),
   ],

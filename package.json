@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "icons": "node scripts/make-icons.mjs",
+    "og": "node scripts/make-og.mjs",
     "demo": "node scripts/record-demo.mjs",
     "server": "wrangler dev -c server/wrangler.jsonc --ip 0.0.0.0 --port 8787",
     "deploy:server": "wrangler deploy -c server/wrangler.jsonc",

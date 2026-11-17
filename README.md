@@ -124,7 +124,7 @@ npm run server:local   # table server and a test build of the game at http://loc
 
 Open `http://localhost:8787/?table=ABCDE` in two browsers (or on phones on the same Wi-Fi) to play each other. Deploy the server to Cloudflare with `npx wrangler login` once, then `npm run deploy:server`.
 
-Other scripts: `npm run icons` redraws the app icons, and `npm run demo` re-records `docs/demo.gif` (it needs the dev server running and Chrome installed).
+Other scripts: `npm run icons` redraws the app icons, `npm run og` redraws the link preview image (`public/og.png`, the picture shown when the link is shared), and `npm run demo` re-records `docs/demo.gif` (it needs the dev server running and Chrome installed).
 
 Pushing to `main` runs the tests, builds the site and deploys it to GitHub Pages with GitHub Actions.
 
