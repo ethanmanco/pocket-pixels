@@ -16,6 +16,9 @@ describe("pixel art", () => {
     expect(AVATAR_CHOICES.length).toBeGreaterThanOrEqual(120);
     expect(AVATAR_CHOICES.filter((a) => a.group === "monster").length).toBeGreaterThanOrEqual(40);
     expect(AVATAR_CHOICES.filter((a) => a.space).length).toBeGreaterThanOrEqual(30);
+    expect(AVATAR_CHOICES.length).toBeGreaterThanOrEqual(144);
+    expect(AVATAR_CHOICES.filter((a) => a.group === "animals").length).toBeGreaterThanOrEqual(16);
+    expect(AVATAR_CHOICES.filter((a) => a.group === "special").length).toBeGreaterThanOrEqual(12);
     expect(new Set(AVATAR_CHOICES.map((a) => a.key)).size).toBe(AVATAR_CHOICES.length);
   });
 });

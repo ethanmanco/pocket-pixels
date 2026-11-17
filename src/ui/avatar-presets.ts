@@ -4,7 +4,7 @@
 
 import type { Palette } from "./pixels";
 
-export type AvatarGroup = "space" | "monster" | "friends";
+export type AvatarGroup = "space" | "monster" | "special" | "animals" | "friends";
 
 export interface Base {
   rows: string[];
@@ -200,6 +200,7 @@ export const BASES: Record<string, Base> = {
   },
   cat: {
     space: false,
+    group: "animals",
     fixed: { K },
     rows: [
       "..............",
@@ -260,6 +261,7 @@ export const BASES: Record<string, Base> = {
   },
   frog: {
     space: false,
+    group: "animals",
     fixed: { K, w: "#ffffff" },
     rows: [
       "..............",

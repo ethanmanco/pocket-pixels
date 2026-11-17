@@ -1,5 +1,6 @@
 // Pixel-art portraits, 14 x 14, drawn for this project.
 
+import { CREATURE_BASES, CREATURE_VARIANTS } from "./avatar-creatures";
 import { MONSTER_BASES, MONSTER_VARIANTS } from "./avatar-monsters";
 import { type AvatarGroup, BASES, VARIANTS as FIRST_SET } from "./avatar-presets";
 import { type Palette, pixelSVG } from "./pixels";
@@ -128,18 +129,20 @@ export interface AvatarChoice {
   group: AvatarGroup;
 }
 
-/** Every pickable avatar: the first set plus mutants, horror and aliens. */
-const VARIANTS = [...FIRST_SET, ...MONSTER_VARIANTS];
-const ALL_BASES = { ...BASES, ...MONSTER_BASES };
-const GROUP_ORDER: AvatarGroup[] = ["space", "monster", "friends"];
+/** Every pickable avatar: the first set, mutants, horror and aliens, then animals and specials. */
+const VARIANTS = [...FIRST_SET, ...MONSTER_VARIANTS, ...CREATURE_VARIANTS];
+const ALL_BASES = { ...BASES, ...MONSTER_BASES, ...CREATURE_BASES };
+const GROUP_ORDER: AvatarGroup[] = ["special", "space", "monster", "animals", "friends"];
 
 export const AVATAR_GROUPS: { group: AvatarGroup; title: string }[] = [
+  { group: "special", title: "Specials" },
   { group: "space", title: "Space" },
   { group: "monster", title: "Monsters" },
+  { group: "animals", title: "Animals" },
   { group: "friends", title: "Friends" },
 ];
 
-/** Every avatar a player can pick: space, then monsters, then friends. */
+/** Every avatar a player can pick: specials, space, monsters, animals, then friends. */
 export const AVATAR_CHOICES: AvatarChoice[] = [];
 
 for (const v of VARIANTS) {
