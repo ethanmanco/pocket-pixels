@@ -193,8 +193,8 @@ export class LocalSource implements TableSource {
 export interface OnlineCallbacks {
   /** Short status for the message line ("Connecting...", errors). */
   status: (text: string) => void;
-  /** You left (or were replaced by the same player somewhere else). */
-  left: () => void;
+  /** You left, opened the table somewhere else, or the host removed you ("kicked"). */
+  left: (reason?: "kicked") => void;
 }
 
 const TOKEN_KEY = "pocket-pixels:tokens";
@@ -303,7 +303,7 @@ export class OnlineSource implements TableSource {
         break;
       case "left":
         this.closedOnPurpose = true;
-        this.cb.left();
+        this.cb.left(msg.reason);
         break;
     }
   }
@@ -321,7 +321,9 @@ export class OnlineSource implements TableSource {
   rebuy(): void { this.send({ t: "rebuy" }); }
   startGame(): void { this.send({ t: "start" }); }
   addBot(): void { this.send({ t: "addBot" }); }
-  removeBot(screenSeat: number): void { this.send({ t: "removeBot", seat: this.realSeat(screenSeat) }); }
+  /** Host only: remove a bot or a person. */
+  kick(screenSeat: number): void { this.send({ t: "kick", seat: this.realSeat(screenSeat) }); }
+  sitOut(): void { this.send({ t: "sitOut" }); }
   back(): void { this.send({ t: "back" }); }
   pause(paused: boolean): void { this.send({ t: "pause", paused }); }
   setLevel(level: Level): void { this.send({ t: "level", level }); }

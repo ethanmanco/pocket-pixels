@@ -330,5 +330,88 @@ describe("room", () => {
     expect(room.s.game.seats[0]!.hole).toHaveLength(0);
     expect(room.s.game.seats[0]!.status).toBe("out");
   });
+
+  it("lets only the host remove players, bots or people, but not themselves", () => {
+    const { room } = setup();
+    room.join(undefined, "Ann");
+    room.join(undefined, "Bo");
+    room.addBot("tok1");
+    expect(room.kick("tok2", 2)).toMatch(/Only the host/);
+    expect(room.kick("tok1", 0)).toMatch(/Leave game/);
+    expect(room.kick("tok1", 4)).toMatch(/already empty/);
+    expect(room.kick("tok1", 2)).toBeNull(); // the bot
+    expect(room.s.seats[2]).toBeNull();
+    expect(room.kick("tok1", 1)).toBeNull(); // Bo
+    expect(room.s.seats[1]).toBeNull();
+    // Bo's old token no longer gets the seat back: he'd be a newcomer.
+    expect(room.seatOf("tok2")).toBe(-1);
+  });
+
+  it("removes a player holding cards when the hand ends, folding them meanwhile", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.join(undefined, "Bo");
+    room.addBot("tok1");
+    room.start("tok1");
+    t.step(); // deal
+    expect(room.s.game.seats[1]!.hole).toHaveLength(2);
+    expect(room.kick("tok1", 1)).toBeNull();
+    expect(room.s.seats[1]!.leaving).toBe(true);
+    expect(room.roomView().seats[1]!.leaving).toBe(true);
+    const hand = room.s.game.handNo;
+    for (let i = 0; i < 200 && room.s.game.handNo === hand; i++) {
+      const h = room.s.game.hand!;
+      if (h.street !== "complete" && h.toAct === 0) room.act("tok1", { type: "fold" });
+      else t.step();
+    }
+    expect(room.s.seats[1]).toBeNull();
+    expect(room.s.game.seats[1]!.hole).toHaveLength(0);
+  });
+
+  it("a player on a break keeps their seat and chips, skips hands, and comes back", () => {
+    const t = setup();
+    const { room } = t;
+    room.join(undefined, "Ann");
+    room.join(undefined, "Bo");
+    room.addBot("tok1");
+    room.start("tok1");
+    t.step(); // deal hand 1
+    room.sitOut("tok2");
+    expect(room.roomView().seats[1]!.away).toBe(true);
+    // Bo's turns are taken for him quickly (not his full turn timer).
+    const hand = room.s.game.handNo;
+    for (let i = 0; i < 200 && room.s.game.handNo === hand; i++) {
+      const h = room.s.game.hand!;
+      if (h.street !== "complete" && h.toAct === 1) {
+        expect(room.s.pending!.kind).toBe("bot");
+      }
+      if (h.street !== "complete" && h.toAct === 0) room.act("tok1", { type: "fold" });
+      else t.step();
+    }
+    expect(room.s.game.seats[1]!.hole).toHaveLength(0); // not dealt in
+    const chips = room.s.game.seats[1]!.stack;
+    expect(chips).toBeGreaterThan(0);
+    // Reconnecting doesn't end the break.
+    room.disconnect("tok2");
+    room.join("tok2", "Bo");
+    expect(room.roomView().seats[1]!.away).toBe(true);
+    room.back("tok2");
+    expect(room.roomView().seats[1]!.away).toBe(false);
+    const next = room.s.game.handNo;
+    for (let i = 0; i < 200 && room.s.game.handNo === next; i++) {
+      const h = room.s.game.hand!;
+      if (h.street !== "complete" && h.toAct === 0) room.act("tok1", { type: "fold" });
+      else if (h.street !== "complete" && h.toAct === 1) room.act("tok2", { type: "fold" });
+      else t.step();
+    }
+    expect(room.s.game.seats[1]!.hole).toHaveLength(2); // dealt in again
+  });
+
+  it("parses the new messages", () => {
+    expect(parseClientMsg(JSON.stringify({ t: "kick", seat: 2 }))).toEqual({ t: "kick", seat: 2 });
+    expect(parseClientMsg(JSON.stringify({ t: "kick", seat: "x" }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: "sitOut" }))).toEqual({ t: "sitOut" });
+  });
 });
 

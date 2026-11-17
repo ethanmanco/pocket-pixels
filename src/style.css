@@ -373,9 +373,22 @@ svg { display: block; }
 .join-form .text-input { text-transform: uppercase; letter-spacing: 3px; }
 .join-form .btn { flex: 0 0 90px; }
 .menu-actions--flat { border-top: 0; padding-top: 0; }
+.menu-actions--wrap { flex-wrap: wrap; }
+.menu-actions--wrap > .btn { flex: 1 1 calc(50% - 4px); }
 .seat-list { list-style: none; margin: 10px 0 8px; padding: 0; display: grid; gap: 6px; font-size: 13px; }
 .seat-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; }
 .btn--mini { flex: 0 0 auto; min-height: 36px; padding: 2px 10px; font-size: 12px; }
+.seat-list-title { margin: 14px 0 0 !important; font-size: 12px !important; color: var(--muted); }
+.seat-list-name { min-width: 0; overflow-wrap: anywhere; }
+.seat-list-tag { color: var(--muted); font-size: 11px; }
+.toast {
+  position: fixed; z-index: 50; left: 50%; top: max(12px, env(safe-area-inset-top));
+  transform: translateX(-50%);
+  width: max-content; max-width: calc(100vw - 32px);
+  padding: 12px 16px; font-size: 14px; line-height: 1.35; text-align: center;
+  color: #1b1240; background: var(--gold); box-shadow: inset 0 -4px 0 #cf7f10;
+  clip-path: var(--step); cursor: pointer;
+}
 .name-form .menu-section { display: block; border-top: 0; padding-bottom: 0; }
 
 /* ------------------------------------------------------------------ space backdrop */

@@ -35,6 +35,8 @@ export interface RoomSeat {
   /** Missed turns in a row; sits out once it reaches 2. */
   timeouts: number;
   away: boolean;
+  /** Chose to take a break (as opposed to missing turns). */
+  sittingOut?: boolean;
   /** Leaves (or is removed) when the current hand ends. */
   leaving: boolean;
 }
@@ -177,7 +179,8 @@ export class Room {
       if (avatar) p.avatar = avatar;
       this.s.game.seats[existing]!.name = name;
       p.connected = true;
-      p.away = false;
+      // Reconnecting doesn't end a break you chose; tapping "I'm back" does.
+      p.away = !!p.sittingOut;
       p.timeouts = 0;
       p.leaving = false;
       this.schedule();
@@ -231,11 +234,23 @@ export class Room {
     this.schedule();
   }
 
+  /** Take a break: keep the seat and chips, check or fold any hand in play, skip new hands. */
+  sitOut(token: string): void {
+    const seat = this.seatOf(token);
+    if (seat < 0) return;
+    const p = this.s.seats[seat]!;
+    p.away = true;
+    p.sittingOut = true;
+    if (this.hand?.toAct === seat && !this.s.paused) this.autoAct(seat);
+    this.schedule();
+  }
+
   back(token: string): void {
     const seat = this.seatOf(token);
     if (seat < 0) return;
     const p = this.s.seats[seat]!;
     p.away = false;
+    p.sittingOut = false;
     p.timeouts = 0;
     this.schedule();
   }
@@ -268,12 +283,23 @@ export class Room {
     return null;
   }
 
-  removeBot(token: string, seat: number): string | null {
-    if (!this.isHost(token)) return "Only the host can remove bots.";
+  /** Host only: remove a bot or a person. Someone holding cards goes when the hand ends. */
+  kick(token: string, seat: number): string | null {
+    if (!this.isHost(token)) return "Only the host can remove players.";
     const p = this.s.seats[seat];
-    if (!p || p.kind !== "bot") return "That seat is not a bot.";
-    if (this.inHand(seat)) p.leaving = true;
-    else this.free(seat);
+    if (!p) return "That seat is already empty.";
+    if (p.token === token) return "To leave, use Leave game.";
+    if (p.kind === "human") {
+      // Their token stops working, so they can't take the seat back.
+      p.token = null;
+      p.connected = false;
+    }
+    if (this.inHand(seat)) {
+      p.leaving = true;
+      if (this.hand?.toAct === seat && !this.s.paused) this.autoAct(seat);
+    } else {
+      this.free(seat);
+    }
     this.schedule();
     return null;
   }
@@ -315,6 +341,7 @@ export class Room {
     const p = this.s.seats[seat]!;
     p.timeouts = 0;
     p.away = false;
+    p.sittingOut = false;
     this.schedule();
     return null;
   }
@@ -370,7 +397,7 @@ export class Room {
     } else if (h) {
       const seat = h.toAct!;
       const p = this.s.seats[seat];
-      if (!p || p.kind === "bot" || p.leaving) {
+      if (!p || p.kind === "bot" || p.leaving || p.sittingOut) {
         const think = p?.kind === "bot" ? this.withRng((rng) => 700 + rng.int(800)) : 400;
         this.s.pending = { kind: "bot", at: now + lag + think, hand: h.number, seat };
       } else {
@@ -437,8 +464,11 @@ export class Room {
       turnMsLeft: p?.kind === "timeout" ? Math.max(0, p.at - this.now()) : null,
       seats: this.s.seats.map((x) =>
         x
-          ? { kind: x.kind, name: x.name, avatar: x.avatar, connected: x.connected, away: x.away, host: !!x.token && x.token === this.s.hostToken }
-          : { kind: "open", name: "", avatar: "", connected: false, away: false, host: false },
+          ? {
+              kind: x.kind, name: x.name, avatar: x.avatar, connected: x.connected, away: x.away,
+              host: !!x.token && x.token === this.s.hostToken, leaving: x.leaving,
+            }
+          : { kind: "open", name: "", avatar: "", connected: false, away: false, host: false, leaving: false },
       ),
     };
   }

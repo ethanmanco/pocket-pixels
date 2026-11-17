@@ -100,8 +100,22 @@ export class Table extends DurableObject<Env> {
       case "act": error = room.act(token, msg.action); break;
       case "start": error = room.start(token); break;
       case "addBot": error = room.addBot(token); break;
-      case "removeBot": error = room.removeBot(token, msg.seat); break;
+      case "kick": case "removeBot": {
+        const gone = room.s.seats[msg.seat]?.token ?? null;
+        error = room.kick(token, msg.seat);
+        if (!error && gone) {
+          // Tell the removed player's phone and close it, so it doesn't reconnect.
+          for (const other of this.ctx.getWebSockets()) {
+            if ((other.deserializeAttachment() as Attachment | null)?.token !== gone) continue;
+            other.serializeAttachment({ token: null } satisfies Attachment);
+            this.send(other, { t: "left", reason: "kicked" });
+            other.close(4001, "Removed by the host");
+          }
+        }
+        break;
+      }
       case "rebuy": error = room.rebuy(token); break;
+      case "sitOut": room.sitOut(token); break;
       case "back": room.back(token); break;
       case "profile": room.profile(token, msg.name, msg.avatar); break;
       case "pause": error = room.pause(token, msg.paused); break;

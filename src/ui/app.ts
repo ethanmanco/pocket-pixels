@@ -69,6 +69,9 @@ function emptyView(): TableView {
   return { me: 0, seats: [], hand: null, smallBlind: 5, bigBlind: 10, legal: null };
 }
 
+/** A note to show once on the next page (for example, after the host removes you). */
+const NOTICE_KEY = "pocket-pixels:notice";
+
 export class TableApp {
   private source: TableSource | null = null;
   private view: TableView = emptyView();
@@ -165,6 +168,15 @@ export class TableApp {
       if (this.turnDeadline !== null && !document.hidden) this.renderTimer();
     }, 500);
     this.render();
+    try {
+      const notice = sessionStorage.getItem(NOTICE_KEY);
+      if (notice) {
+        sessionStorage.removeItem(NOTICE_KEY);
+        this.toast(notice);
+      }
+    } catch {
+      // Storage blocked: nothing to show.
+    }
   }
 
   start(): void {
@@ -193,7 +205,14 @@ export class TableApp {
         this.say(text);
         this.render();
       },
-      left: () => {
+      left: (reason) => {
+        if (reason === "kicked") {
+          try {
+            sessionStorage.setItem(NOTICE_KEY, "The host removed you from the table.");
+          } catch {
+            // No storage: you just land on the home screen without the note.
+          }
+        }
         location.href = homeUrl();
       },
     });
@@ -254,6 +273,7 @@ export class TableApp {
       }
     }
     this.persist();
+    this.refreshMenu();
   }
 
   // ---------------------------------------------------------------- updates
@@ -285,6 +305,7 @@ export class TableApp {
     this.avatars = u.avatars;
     this.room = u.room;
     this.joined = true;
+    this.refreshMenu();
     this.sentAction = false;
     const n = u.view.seats.length;
     if (n !== before) {
@@ -390,6 +411,18 @@ export class TableApp {
           break;
       }
     }
+  }
+
+  /** A note that stays on screen for a few seconds, above the game's own messages. Tap to close. */
+  private toast(text: string): void {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.setAttribute("role", "alert");
+    el.textContent = text;
+    const close = () => el.remove();
+    el.onclick = close;
+    document.body.append(el);
+    setTimeout(close, 7000);
   }
 
   private say(text: string): void {
@@ -561,46 +594,9 @@ export class TableApp {
   }
 
   private renderMenu(confirmReset = false): void {
-    const st = this.saved.stats;
-    const best = st.bestHand;
     const m = this.el.menu;
     const local = this.local;
     const online = this.online;
-    const me = this.view.seats[HUMAN];
-    const host = !!this.room?.seats[HUMAN]?.host;
-
-    const friends = online
-      ? `
-      <section class="menu-section">
-        <h3>Table ${online.code}</h3>
-        <div class="menu-actions menu-actions--flat">
-          <button class="btn btn--small" data-m="invite">Invite friends</button>
-          <button class="btn btn--small btn--fold" data-m="leave">Leave table</button>
-        </div>
-        ${me && me.stack === 0 && me.status !== "active" && me.status !== "allin" ? `<button class="btn btn--small btn--go" data-m="refuel">Refuel ${fmt(START_STACK)} chips</button>` : ""}
-        ${host ? `
-        <ul class="seat-list">
-          ${(this.room?.seats ?? []).map((s, i) => i === HUMAN ? "" : `<li>
-            <span>${s.kind === "open" ? "Open seat" : esc(s.name)}${s.kind === "bot" ? " (bot)" : ""}${s.kind === "human" && (s.away || !s.connected) ? " (away)" : ""}</span>
-            ${s.kind === "bot" ? `<button class="btn btn--small btn--mini" data-m="remove" data-seat="${i}">Remove</button>` : ""}
-          </li>`).join("")}
-        </ul>
-        <button class="btn btn--small" data-m="addbot">Add a bot</button>
-        <button class="btn btn--small" data-m="pause">${this.room?.paused ? "Resume game" : "Pause game"}</button>
-        <p class="menu-note">You are the host: you can pause, and add or remove bots.</p>` : ""}
-      </section>`
-      : `
-      <section class="menu-section">
-        <h3>Play with friends</h3>
-        <div class="menu-actions menu-actions--flat">
-          <button class="btn btn--small btn--go" data-m="create">New table</button>
-        </div>
-        <form class="join-form" data-m="join">
-          <input class="text-input" name="code" maxlength="5" autocapitalize="characters" autocomplete="off" placeholder="CODE" aria-label="Table code">
-          <button class="btn btn--small">Join</button>
-        </form>
-        <p class="menu-note">Make a table and send the link, or type a friend's code.</p>
-      </section>`;
 
     m.innerHTML = `
       <h2 id="menu-title" class="menu-title">Menu</h2>
@@ -617,7 +613,7 @@ export class TableApp {
       </section>
       ${this.profileSection()}
       ${this.levelSection()}
-      ${friends}
+      ${this.tableSection()}
       ${local ? `
       <section class="menu-section">
         <h3 id="size-label">Players at the table</h3>
@@ -626,18 +622,7 @@ export class TableApp {
         </div>
         <p class="menu-note">${local.busy ? "Changes when this hand ends." : "You plus computer opponents."}</p>
       </section>` : ""}
-      <section class="menu-section">
-        <h3>Your stats</h3>
-        <dl class="stats">
-          ${local && me ? `<dt>Chips</dt><dd>${fmt(me.stack)}</dd>` : ""}
-          <dt>Hands played</dt><dd>${fmt(st.handsPlayed)}</dd>
-          <dt>Hands won</dt><dd>${fmt(st.handsWon)}</dd>
-          <dt>Biggest pot</dt><dd>${fmt(st.biggestPot)}</dd>
-          <dt>Rebuys</dt><dd>${fmt(st.rebuys)}</dd>
-          <dt>Best hand</dt><dd>${best ? best.name : "None yet"}</dd>
-        </dl>
-        <div class="best-cards" role="group" aria-label="${best ? `Best hand cards: ${cardList(best.cards.map(parseCard))}` : ""}"></div>
-      </section>
+      ${this.statsSection()}
       <div class="menu-actions">
         <button class="btn btn--small" data-m="reset">${confirmReset ? "Tap again to reset" : "Reset stats"}</button>
         <button class="btn btn--small btn--go" data-m="close">Close</button>
@@ -648,7 +633,6 @@ export class TableApp {
       </a>
       <p class="menu-note">Play chips only. No real money.</p>`;
     this.wireProfile();
-    if (best) m.querySelector(".best-cards")!.append(...best.cards.map((c) => cardEl(parseCard(c), "sm")));
 
     m.querySelector<HTMLFormElement>('form[data-m="join"]')?.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -660,58 +644,179 @@ export class TableApp {
         input.reportValidity();
       }
     });
-    m.querySelectorAll<HTMLButtonElement>("button[data-m]").forEach((b) => {
-      b.onclick = () => {
-        switch (b.dataset.m) {
-          case "sound": this.toggleMute(); break;
-          case "size":
-            this.saved.players = Number(b.dataset.n);
-            this.persist();
-            local?.setSize(this.saved.players);
-            this.renderMenu();
-            break;
-          case "create": location.href = `${homeUrl()}?table=${randomCode()}`; break;
-          case "invite": void this.invite(); break;
-          case "leave":
-            online?.leave();
-            setTimeout(() => (location.href = homeUrl()), 400);
-            break;
-          case "addbot": online?.addBot(); break;
-          case "remove": online?.removeBot(Number(b.dataset.seat)); break;
-          case "reset":
-            if (!confirmReset) return this.renderMenu(true);
-            this.saved.stats = emptyStats();
-            this.persist();
-            this.renderMenu();
-            break;
-          case "close": m.close(); break;
-          case "pause": online?.pause(!this.room?.paused); break;
-          case "refuel":
-            this.saved.stats.rebuys++;
-            this.persist();
-            online?.rebuy();
-            this.say(`You refuel ${fmt(START_STACK)} chips. You're back in from the next hand.`);
-            m.close();
-            break;
-          case "theme":
-            this.saved.theme = b.dataset.theme === "classic" ? "classic" : "space";
-            this.persist();
-            this.applyTheme(this.saved.theme);
-            this.renderMenu();
-            break;
-          case "level": {
-            const level = b.dataset.level as (typeof LEVELS)[number];
-            if (online) online.setLevel(level);
-            else {
-              this.saved.level = level;
-              this.persist();
-            }
-            this.renderMenu();
-            break;
+    // One handler for the whole menu, so the parts redrawn live keep working.
+    m.onclick = (e) => {
+      const b = (e.target as Element).closest<HTMLButtonElement>("button[data-m]");
+      if (!b || b.disabled || !m.contains(b)) return;
+      switch (b.dataset.m) {
+        case "sound": this.toggleMute(); break;
+        case "size":
+          this.saved.players = Number(b.dataset.n);
+          this.persist();
+          local?.setSize(this.saved.players);
+          this.renderMenu();
+          break;
+        case "create": location.href = `${homeUrl()}?table=${randomCode()}`; break;
+        case "invite": void this.invite(); break;
+        case "break":
+          online?.sitOut();
+          this.say("You're on a break. Your seat and chips are saved.");
+          m.close();
+          this.render();
+          break;
+        case "back":
+          online?.back();
+          this.say("Welcome back. You're in from the next hand.");
+          break;
+        case "leave":
+          // A second tap confirms: leaving gives up your seat and chips.
+          if (!b.dataset.armed) {
+            b.dataset.armed = "1";
+            b.textContent = "Tap again to leave";
+            return;
           }
+          online?.leave();
+          setTimeout(() => (location.href = homeUrl()), 400);
+          break;
+        case "addbot": online?.addBot(); break;
+        case "remove":
+          // People get a confirming second tap; bots go straight away.
+          if (b.dataset.kind === "human" && !b.dataset.armed) {
+            b.dataset.armed = "1";
+            b.textContent = "Sure?";
+            return;
+          }
+          b.disabled = true;
+          online?.kick(Number(b.dataset.seat));
+          break;
+        case "reset":
+          if (!confirmReset) return this.renderMenu(true);
+          this.saved.stats = emptyStats();
+          this.persist();
+          this.renderMenu();
+          break;
+        case "close": m.close(); break;
+        case "pause": online?.pause(!this.room?.paused); break;
+        case "refuel":
+          this.saved.stats.rebuys++;
+          this.persist();
+          online?.rebuy();
+          this.say(`You refuel ${fmt(START_STACK)} chips. You're back in from the next hand.`);
+          m.close();
+          break;
+        case "theme":
+          this.saved.theme = b.dataset.theme === "classic" ? "classic" : "space";
+          this.persist();
+          this.applyTheme(this.saved.theme);
+          this.renderMenu();
+          break;
+        case "level": {
+          const level = b.dataset.level as (typeof LEVELS)[number];
+          if (online) online.setLevel(level);
+          else {
+            this.saved.level = level;
+            this.persist();
+          }
+          this.renderMenu();
+          break;
         }
-      };
-    });
+      }
+    };
+  }
+
+  /** Redraw the parts of an open menu that follow the table: seats, host controls, bots, stats. */
+  private refreshMenu(): void {
+    const m = this.el.menu;
+    if (!m.open) return;
+    const fresh = document.createElement("div");
+    fresh.innerHTML = this.levelSection() + this.tableSection() + this.statsSection();
+    for (const next of fresh.querySelectorAll<HTMLElement>("[data-live]")) {
+      const cur = m.querySelector<HTMLElement>(`[data-live="${next.dataset.live}"]`);
+      if (cur && cur.outerHTML !== next.outerHTML) cur.replaceWith(next);
+    }
+  }
+
+  /** Online: who's at the table, breaks, leaving, and the host's controls. Solo: make or join a table. */
+  private tableSection(): string {
+    const online = this.online;
+    if (!online) {
+      return `
+      <section class="menu-section">
+        <h3>Play with friends</h3>
+        <div class="menu-actions menu-actions--flat">
+          <button class="btn btn--small btn--go" data-m="create">New table</button>
+        </div>
+        <form class="join-form" data-m="join">
+          <input class="text-input" name="code" maxlength="5" autocapitalize="characters" autocomplete="off" placeholder="CODE" aria-label="Table code">
+          <button class="btn btn--small">Join</button>
+        </form>
+        <p class="menu-note">Make a table and send the link, or type a friend's code.</p>
+      </section>`;
+    }
+    const me = this.view.seats[HUMAN];
+    const mine = this.room?.seats[HUMAN];
+    const host = !!mine?.host;
+    const away = !!mine?.away;
+    const others = (this.room?.seats ?? [])
+      .map((s, i) => ({ s, i }))
+      .filter(({ s, i }) => i !== HUMAN && s.kind !== "open");
+    const tags = (s: NonNullable<typeof mine>) =>
+      [
+        s.kind === "bot" ? "bot" : "",
+        s.host ? "host" : "",
+        s.leaving ? "leaving" : s.kind === "human" && !s.connected ? "offline" : s.away ? "on a break" : "",
+      ].filter(Boolean);
+    const rows = others.length
+      ? others.map(({ s, i }) => `<li>
+            <span class="seat-list-name">${esc(s.name)}${tags(s).length ? ` <span class="seat-list-tag">(${tags(s).join(", ")})</span>` : ""}</span>
+            ${host && !s.leaving ? `<button class="btn btn--small btn--mini" data-m="remove" data-seat="${i}" data-kind="${s.kind}" aria-label="Remove ${esc(s.name)}">Remove</button>` : ""}
+          </li>`).join("")
+      : `<li><span class="seat-list-tag">Nobody else yet. Invite a friend${host ? " or add a bot" : ""}.</span></li>`;
+    return `
+      <section class="menu-section" data-live="table">
+        <h3>Table ${online.code}</h3>
+        <div class="menu-actions menu-actions--flat menu-actions--wrap">
+          <button class="btn btn--small" data-m="invite">Invite friends</button>
+          ${away
+            ? `<button class="btn btn--small btn--go" data-m="back">I'm back</button>`
+            : `<button class="btn btn--small" data-m="break">Take a break</button>`}
+          <button class="btn btn--small btn--fold" data-m="leave">Leave game</button>
+        </div>
+        <p class="menu-note">${away
+          ? "You're on a break. Your seat and chips are saved, and you skip hands until you tap I'm back."
+          : "Take a break keeps your seat and chips while you step away. Leave game gives up your seat."}</p>
+        ${me && me.stack === 0 && me.status !== "active" && me.status !== "allin" ? `<button class="btn btn--small btn--go" data-m="refuel">Refuel ${fmt(START_STACK)} chips</button>` : ""}
+        <h3 class="seat-list-title">At the table</h3>
+        <ul class="seat-list">${rows}</ul>
+        ${host ? `
+        <div class="menu-actions menu-actions--flat">
+          <button class="btn btn--small" data-m="addbot">Add a bot</button>
+          <button class="btn btn--small" data-m="pause">${this.room?.paused ? "Resume game" : "Pause game"}</button>
+        </div>
+        <p class="menu-note">You are the host: you can pause, add bots, and remove anyone. Someone holding cards leaves when the hand ends.</p>` : ""}
+      </section>`;
+  }
+
+  private statsSection(): string {
+    const st = this.saved.stats;
+    const best = st.bestHand;
+    const me = this.view.seats[HUMAN];
+    return `
+      <section class="menu-section" data-live="stats">
+        <h3>Your stats</h3>
+        <dl class="stats">
+          ${this.local && me ? `<dt>Chips</dt><dd>${fmt(me.stack)}</dd>` : ""}
+          <dt>Hands played</dt><dd>${fmt(st.handsPlayed)}</dd>
+          <dt>Hands won</dt><dd>${fmt(st.handsWon)}</dd>
+          <dt>Hands lost</dt><dd>${fmt(Math.max(0, st.handsPlayed - st.handsWon))}</dd>
+          <dt>Biggest pot</dt><dd>${fmt(st.biggestPot)}</dd>
+          <dt>Rebuys</dt><dd>${fmt(st.rebuys)}</dd>
+          <dt>Best hand</dt><dd>${best ? best.name : "None yet"}</dd>
+        </dl>
+        <div class="best-cards" role="group" aria-label="${best ? `Best hand cards: ${cardList(best.cards.map(parseCard))}` : ""}">${
+          best ? best.cards.map((c) => cardEl(parseCard(c), "sm").outerHTML).join("") : ""
+        }</div>
+      </section>`;
   }
 
   /** Name and avatar picker. */
@@ -736,7 +841,7 @@ export class TableApp {
     const current = online ? this.room?.level ?? "regular" : this.saved.level;
     const canSet = !online || !!this.room?.seats[HUMAN]?.host;
     return `
-      <section class="menu-section">
+      <section class="menu-section" data-live="level">
         <h3 id="level-label">Bots</h3>
         <div class="seg" role="radiogroup" aria-labelledby="level-label">
           ${LEVELS.map((l) => `<button class="btn btn--small" role="radio" aria-checked="${l === current}" data-m="level" data-level="${l}" ${canSet ? "" : "disabled"}>${LEVEL_NAMES[l]}</button>`).join("")}
@@ -1004,6 +1109,12 @@ export class TableApp {
       return wire();
     }
 
+    // On a break (chosen, or after missing turns): one tap to come back.
+    if (online && room?.seats[HUMAN]?.away) {
+      shell("", "You are sitting out. Your seat and chips are saved.", `<button class="btn btn--go" data-do="back">I'm back</button>`);
+      return wire();
+    }
+
     // Online lobby: the host adds bots and starts; everyone can invite.
     if (online && room && !room.started) {
       const seated = room.seats.filter((s) => s.kind !== "open").length;
@@ -1031,10 +1142,6 @@ export class TableApp {
           online ? "You are out of chips. Refuel to get back in the game." : "You are out of chips.",
           `<button class="btn btn--go" data-do="rebuy">${online ? `Refuel ${fmt(START_STACK)} and rejoin` : `Rebuy ${fmt(START_STACK)}`}</button>`,
         );
-        return wire();
-      }
-      if (online && room?.seats[HUMAN]?.away) {
-        shell("", "You are sitting out.", `<button class="btn btn--go" data-do="back">I'm back</button>`);
         return wire();
       }
       if (!online && !this.animating && !this.local?.busy && viewBetweenHands(v)) {

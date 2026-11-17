@@ -12,7 +12,7 @@ import puppeteer from "puppeteer-core";
 const BASE = process.argv[2] ?? "http://localhost:8787/";
 const SHOTS = process.argv[3] ?? null;
 const CHROME = process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
-const CODE = "TEST" + "ABCDEFGHJK"[Math.floor(Math.random() * 10)];
+const CODE = "TST" + "ABCDEFGHJK"[Math.floor(Math.random() * 10)] + "ABCDEFGHJK"[Math.floor(Math.random() * 10)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: true });

@@ -17,8 +17,12 @@ export type ClientMsg =
   | { t: "act"; action: Action }
   | { t: "start" }
   | { t: "addBot" }
+  /** Host only: remove a bot or a person from a seat (removeBot is the older name). */
+  | { t: "kick"; seat: number }
   | { t: "removeBot"; seat: number }
   | { t: "rebuy" }
+  /** Take a break: keep your seat and chips but skip hands until "back". */
+  | { t: "sitOut" }
   | { t: "back" }
   | { t: "leave" };
 
@@ -29,6 +33,8 @@ export interface RoomSeatView {
   connected: boolean;
   away: boolean;
   host: boolean;
+  /** Leaves (or was removed) and goes when the current hand ends. */
+  leaving?: boolean;
 }
 
 export interface RoomView {
@@ -48,7 +54,8 @@ export type ServerMsg =
   | { t: "welcome"; seat: number; token: string }
   | { t: "update"; view: TableView; events: GameEvent[]; room: RoomView }
   | { t: "error"; message: string }
-  | { t: "left" };
+  /** You are no longer seated: you left, opened the table elsewhere, or the host removed you. */
+  | { t: "left"; reason?: "kicked" };
 
 export function isValidCode(code: string): boolean {
   return code.length === CODE_LENGTH && [...code].every((c) => CODE_ALPHABET.includes(c));
@@ -102,9 +109,9 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (a.type === "raise" && typeof a.to === "number" && Number.isFinite(a.to)) return { t: "act", action: { type: "raise", to: Math.floor(a.to) } };
       return null;
     }
-    case "removeBot":
-      return typeof o.seat === "number" && Number.isInteger(o.seat) ? { t: "removeBot", seat: o.seat } : null;
-    case "start": case "addBot": case "rebuy": case "back": case "leave":
+    case "removeBot": case "kick":
+      return typeof o.seat === "number" && Number.isInteger(o.seat) ? { t: o.t, seat: o.seat } : null;
+    case "start": case "addBot": case "rebuy": case "sitOut": case "back": case "leave":
       return { t: o.t };
     default:
       return null;

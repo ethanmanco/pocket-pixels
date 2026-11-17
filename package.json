@@ -17,7 +17,8 @@
     "typecheck:server": "tsc -p server/tsconfig.json",
     "server:local": "vite build --base / --outDir dist-local --mode localtest && wrangler dev -c server/wrangler.local.jsonc --ip 0.0.0.0 --port 8787",
     "check:online": "node scripts/online-check.mjs",
-    "check:refuel": "node scripts/online-refuel-check.mjs"
+    "check:refuel": "node scripts/online-refuel-check.mjs",
+    "check:host": "node scripts/online-host-check.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261031.1",
