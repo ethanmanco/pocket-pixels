@@ -15,6 +15,7 @@ import { type RoomView, isValidCode, randomCode } from "../online/protocol";
 import { AVATAR_CHOICES, AVATAR_GROUPS, avatarBg, avatarName, avatarSVG } from "./avatars";
 import { cardBackEl, cardEl, cardList, emptySlotEl } from "./cards";
 import { chipsSVG, pileColumns, stackColumn } from "./chips";
+import { DOWNLOAD_ICON, initInstall } from "./install";
 import { flipIn, slide } from "./motion";
 import { pixelSVG } from "./pixels";
 import { isMuted, setMuted, sfx, unlockAudio } from "./sfx";
@@ -112,8 +113,11 @@ export class TableApp {
 
     root.innerHTML = `
       <header class="topbar">
-        <h1 class="title">Pocket Pixels</h1>
-        <span class="hand-no"></span>
+        <div class="brand">
+          <h1 class="title">Pocket Pixels</h1>
+          <span class="hand-no"></span>
+        </div>
+        <button class="icon-btn icon-btn--install" data-ui="install" hidden>${pixelSVG(DOWNLOAD_ICON, { X: "currentColor" }, 2, "icon")}</button>
         <button class="icon-btn" data-ui="mute"></button>
         <button class="icon-btn" data-ui="menu" aria-label="Menu and stats" aria-haspopup="dialog">${icon(ICONS.menu)}</button>
       </header>
@@ -138,6 +142,7 @@ export class TableApp {
       mute: q('[data-ui="mute"]'), menuBtn: q('[data-ui="menu"]'), menu: q("dialog"),
     };
     paintTable(this.el.felt);
+    initInstall(q<HTMLButtonElement>('[data-ui="install"]'));
     // The starfield behind everything.
     const space = document.createElement("canvas");
     space.className = "space";

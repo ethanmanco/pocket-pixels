@@ -47,7 +47,23 @@
     4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)
   );
   color-scheme: dark;
+
+  /* Safe areas. Legible content stays below --safe-top. */
+  --inset-top: env(safe-area-inset-top, 0px);
+  --inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: max(6px, var(--inset-top));
+  --safe-bottom: max(12px, var(--inset-bottom));
 }
+
+/* Running from an iPhone's home screen, the page draws under the status bar,
+   whose blur reaches about 32px below it: keep everything legible lower down.
+   The starfield still fills the whole screen behind it. */
+html.is-ios-app { --safe-top: calc(var(--inset-top) + 32px); }
+
+/* As an installed app it should feel like one: no text selection or callouts
+   on long presses (inputs still work), and no double-tap zoom. */
+html.is-app body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+html.is-app input { -webkit-user-select: text; user-select: text; }
 
 * { box-sizing: border-box; }
 
@@ -67,8 +83,8 @@ html, body {
   height: 100dvh;
   max-width: 520px;
   margin: 0 auto;
-  padding: max(6px, env(safe-area-inset-top)) max(var(--gutter), env(safe-area-inset-right))
-    max(12px, env(safe-area-inset-bottom)) max(var(--gutter), env(safe-area-inset-left));
+  padding: var(--safe-top) max(var(--gutter), env(safe-area-inset-right))
+    var(--safe-bottom) max(var(--gutter), env(safe-area-inset-left));
 }
 
 .sr-only {
@@ -81,7 +97,12 @@ svg { display: block; }
 /* ------------------------------------------------------------------ top bar */
 .topbar { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .title { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: 0; white-space: nowrap; color: var(--gold); text-transform: uppercase; text-shadow: 2px 2px 0 #000; }
-.hand-no { font-size: 12px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+.hand-no { font-size: 12px; color: var(--muted); white-space: nowrap; }
+/* Phones: the hand number sits under the title, leaving room for the buttons. */
+.brand { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.brand .hand-no { font-size: 10px; line-height: 1; }
+.brand .hand-no:empty { display: none; }
+@media (max-width: 359px) { .title { font-size: 15px; } }
 .icon-btn {
   width: 44px; height: 44px; display: grid; place-items: center;
   background: var(--btn); color: var(--ink); border: 0; padding: 0; cursor: pointer;
@@ -91,6 +112,8 @@ svg { display: block; }
 }
 .icon-btn[aria-pressed="false"] { color: var(--muted); }
 .icon-btn:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; }
+.topbar .icon-btn--install { width: 36px; height: 36px; flex: none; color: var(--gold); }
+.icon-btn[hidden] { display: none; }
 
 /* ------------------------------------------------------------------ table */
 .felt {
@@ -294,7 +317,9 @@ svg { display: block; }
 /* ------------------------------------------------------------------ menu */
 .menu {
   width: min(400px, calc(100vw - 32px));
-  max-height: calc(100dvh - 32px);
+  /* Centered in the space between the safe areas. */
+  inset-block: var(--safe-top) var(--safe-bottom);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px);
   padding: 18px 18px 14px;
   border: 0;
   background: #0d1033;
@@ -304,6 +329,19 @@ svg { display: block; }
   clip-path: var(--step);
 }
 .menu::backdrop { background: #02020ac0; }
+
+/* Add to home screen steps */
+.install-lead { margin: 0 0 12px; font-size: 13px; line-height: 1.4; }
+.install-steps { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 12px; }
+.install-steps li { display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 12px; font-size: 13px; line-height: 1.4; }
+.install-steps b { color: var(--gold); font-weight: 700; }
+.install-key {
+  width: 44px; height: 44px; display: grid; place-items: center;
+  background: var(--btn); color: var(--accent); clip-path: var(--step);
+  box-shadow: inset 0 -4px 0 #0006;
+}
+.install-key--text { font-size: 13px; font-weight: 700; color: var(--ink); }
+.install-inline { display: inline-grid; vertical-align: middle; padding: 3px 4px; background: var(--btn); color: var(--accent); }
 .menu-title { margin: 0 0 10px; font-size: 20px; color: var(--gold); text-transform: uppercase; }
 .menu-section { padding: 10px 0; border-top: 2px dashed #ffffff26; }
 .menu-section h3 { margin: 0 0 8px; font-size: 14px; }
@@ -382,7 +420,7 @@ svg { display: block; }
 .seat-list-name { min-width: 0; overflow-wrap: anywhere; }
 .seat-list-tag { color: var(--muted); font-size: 11px; }
 .toast {
-  position: fixed; z-index: 50; left: 50%; top: max(12px, env(safe-area-inset-top));
+  position: fixed; z-index: 50; left: 50%; top: calc(var(--safe-top) + 6px);
   transform: translateX(-50%);
   width: max-content; max-width: calc(100vw - 32px);
   padding: 12px 16px; font-size: 14px; line-height: 1.35; text-align: center;
@@ -460,6 +498,8 @@ svg { display: block; }
   .topbar { grid-area: top; min-height: 56px; }
   .title { font-size: 26px; }
   .hand-no { font-size: 15px; }
+  .brand { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand .hand-no { font-size: 15px; }
   .felt {
     grid-area: felt; margin: 6px 0 4px; padding: 0 28px 24px;
     container-type: inline-size;

@@ -14,11 +14,17 @@ export default defineConfig(({ command, isPreview, mode }) => ({
       manifest: {
         name: "Pocket Pixels",
         short_name: "Pocket Pixels",
-        description: "8-bit Texas Hold'em against computer opponents. Play chips only.",
+        description: "8-bit Texas Hold'em against bots or with friends online. Play chips only.",
         theme_color: "#05050f",
         background_color: "#05050f",
-        display: "standalone",
+        // Android hides the status bar for a full-screen game; iOS treats
+        // this as standalone and draws under its status bar (see index.html).
+        display: "fullscreen",
+        display_override: ["fullscreen", "standalone"],
         orientation: "portrait",
+        id: "/pocket-pixels/",
+        start_url: "/pocket-pixels/",
+        scope: "/pocket-pixels/",
         icons: [
           { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },

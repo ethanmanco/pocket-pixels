@@ -24,7 +24,7 @@ Play chips only. There is no real money, nothing to buy, and no ads.
 - **Your look:** pick a name and one of 148 pixel avatars in five groups: Specials (glitch faces, fire spirits, crystals and galaxy beings), Space (astronauts, aliens, robots, cyborgs, brain aliens, tentacle horrors, insect aliens and more), Monsters (zombies, vampires, mummies, skulls, werewolves, demons, mutants and more), Animals (foxes, pandas, owls, penguins, bunnies, monkeys, lions, pigs, cats and frogs) and Friends.
 - **Two themes:** Space (a pixel starfield with a nebula and a ringed planet, and a deep-space table with station lights) or Classic (a green felt table in a wooden rail). Switch in the menu; the cards look the same in both.
 - **Desktop too:** on a wide screen the table fills the window with your controls in a side column, and F, C, R, A and N work as keyboard shortcuts.
-- **Installable:** add it to your home screen and solo play works offline.
+- **Installable:** tap the download icon next to the title. Android shows its install prompt; on iPhone it walks you through Share, then Add to Home Screen. From the home screen it runs full screen, keeps every label clear of the iPhone status bar and its blur, and solo play works offline.
 
 ## How the opponents decide
 
